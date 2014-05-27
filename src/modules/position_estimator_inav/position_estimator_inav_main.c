@@ -60,6 +60,7 @@
 #include <uORB/topics/vehicle_gps_position.h>
 #include <uORB/topics/home_position.h>
 #include <uORB/topics/optical_flow.h>
+#include <uORB/topics/cubie_pos.h>
 #include <mavlink/mavlink_log.h>
 #include <poll.h>
 #include <systemlib/err.h>
@@ -225,6 +226,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	struct map_projection_reference_s ref;
 	memset(&ref, 0, sizeof(ref));
 	hrt_abstime home_timestamp = 0;
+	double cubie_lat = 0.0, cubie_lon = 0.0;
 
 	uint16_t accel_updates = 0;
 	uint16_t baro_updates = 0;
@@ -256,6 +258,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 
 	float corr_flow[] = { 0.0f, 0.0f };	// N E
 	float w_flow = 0.0f;
+	
+	float corr_cubie[] = { 0.0f, 0.0f, 0.0f };
+	float cubie_p[] = { 0.0f, 0.0f, 0.0f };
 
 	static float min_eph_epv = 2.0f;	// min EPH/EPV, used for weight calculation
 	static float max_eph_epv = 10.0f;	// max EPH/EPV acceptable for estimation
@@ -270,6 +275,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	bool sonar_valid = false;		// sonar is valid
 	bool flow_valid = false;		// flow is valid
 	bool flow_accurate = false;		// flow should be accurate (this flag not updated if flow_valid == false)
+	
+	bool cubie_updated = false;
 
 	/* declare and safely initialize all structs */
 	struct actuator_controls_s actuator;
@@ -290,6 +297,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	memset(&flow, 0, sizeof(flow));
 	struct vehicle_global_position_s global_pos;
 	memset(&global_pos, 0, sizeof(global_pos));
+	struct cubie_pos_s cubie_pos;
+	memset(&cubie_pos, 0, sizeof(cubie_pos));
 
 	/* subscribe */
 	int parameter_update_sub = orb_subscribe(ORB_ID(parameter_update));
@@ -300,6 +309,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	int optical_flow_sub = orb_subscribe(ORB_ID(optical_flow));
 	int vehicle_gps_position_sub = orb_subscribe(ORB_ID(vehicle_gps_position));
 	int home_position_sub = orb_subscribe(ORB_ID(home_position));
+	int cubie_pos_sub = orb_subscribe(ORB_ID(cubie_position));
 
 	/* advertise */
 	orb_advert_t vehicle_local_position_pub = orb_advertise(ORB_ID(vehicle_local_position), &local_pos);
@@ -693,6 +703,65 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 
 				gps_updates++;
 			}
+			
+			/* vehicle cubie position */
+			orb_check(cubie_pos_sub, &updated);
+
+			if (updated)
+			{
+				orb_copy(ORB_ID(cubie_position), cubie_pos_sub, &cubie_pos);
+				if (!ref_inited) {
+						if (ref_init_start == 0) {
+							ref_init_start = t;
+
+						} else if (t > ref_init_start + ref_init_delay) {
+							ref_inited = true;
+							/* reference GPS position */
+							double lat = 55.813774;
+							double lon = 37.500948;
+							float alt = 10;
+
+							local_pos.ref_lat = 558137740;
+							local_pos.ref_lon = 375009480;
+							local_pos.ref_alt = 10000 + z_est[0];
+							local_pos.ref_timestamp = t;
+
+							/* initialize projection */
+							map_projection_init(&ref, lat, lon);
+							warnx("init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
+							mavlink_log_info(mavlink_fd, "[inav] init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
+						}
+					}
+				/*if(!cubie_ref_inited)
+				{
+					/* initialize projection */
+					/*map_projection_init(&cubie_ref, 55.813774, 37.500948);
+					map_projection_init(&ref, 0.0, 0.0);
+					cubie_ref_inited = true;
+				}
+				map_projection_reproject(&cubie_ref, cubie_pos.x, cubie_pos.y, &cubie_lat, &cubie_lon);
+				map_projection_project(&ref, cubie_lat, cubie_lon, &corr_cubie[0], &corr_cubie[1]);*/
+				float cubie_pos_arr[3] = { cubie_pos.x, cubie_pos.y, cubie_pos.z };
+				if (att.R_valid)
+				{
+						/* transform vector from body frame to NED frame */
+						for (int i = 0; i < 3; i++) {
+							cubie_p[i] = 0.0f;
+
+							for (int j = 0; j < 3; j++) {
+								cubie_p[i] += att.R[i][j] * cubie_pos_arr[j];
+							}
+						}
+				}
+				corr_cubie[0] = cubie_p[0] - x_est[0];
+				corr_cubie[1] = cubie_p[1] - y_est[0];
+				corr_cubie[2] = cubie_p[2] - z_est[0];
+				/*corr_cubie[0] = cubie_pos.x - x_est[0];
+				corr_cubie[1] = cubie_pos.y - y_est[0];
+				corr_cubie[2] = cubie_pos.z - z_est[0];*/
+				mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos.x, cubie_pos.y, cubie_pos.z);
+				cubie_updated = true;
+			}
 		}
 
 		/* check for timeout on FLOW topic */
@@ -785,6 +854,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			accel_bias_corr[0] -= corr_flow[0] * params.w_xy_flow;
 			accel_bias_corr[1] -= corr_flow[1] * params.w_xy_flow;
 		}
+		
+		//for cubie
+		//accel_bias_corr[0] -= corr_cubie[0] * 2.2 * 2.2;
+		//accel_bias_corr[1] -= corr_cubie[1] * 2.2 * 2.2;
 
 		accel_bias_corr[2] -= corr_baro * params.w_z_baro * params.w_z_baro;
 
@@ -851,6 +924,34 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 					inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v);
 					inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v);
 				}
+			}
+
+			//cubie
+			if(cubie_updated)
+			{
+				//x_est[0] += corr_cubie[0] * 1.0;
+				//y_est[0] += corr_cubie[1] * 1.0;
+				if((fabsf(corr_cubie[0]) > 10.0f) || (fabsf(corr_cubie[1]) > 10.0f))
+				{
+					x_est[0] = cubie_p[0];
+					y_est[0] = cubie_p[1];
+					z_est[0] = cubie_p[2];
+					
+					x_est[1] = 0.0f;
+					x_est[2] = 0.0f;
+					y_est[1] = 0.0f;
+					y_est[2] = 0.0f;
+					z_est[1] = 0.0f;
+					z_est[2] = 0.0f;
+				}
+				else
+				{
+					inertial_filter_correct(corr_cubie[0], dt, x_est, 0, 5.2f);
+					inertial_filter_correct(corr_cubie[1], dt, y_est, 0, 5.2f);
+					inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 5.2f);
+				}
+				mavlink_log_info(mavlink_fd, "[inav] cubie corr_x: %.2f corr_y: %.2f corr_z: %.2f", corr_cubie[0], corr_cubie[1], corr_cubie[2]);
+				cubie_updated = false;
 			}
 
 			if (!(isfinite(x_est[0]) && isfinite(x_est[1]) && isfinite(x_est[2]) && isfinite(y_est[0]) && isfinite(y_est[1]) && isfinite(y_est[2]))) {
