@@ -710,13 +710,12 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			if (updated)
 			{
 				orb_copy(ORB_ID(cubie_position), cubie_pos_sub, &cubie_pos);
-				if (!ref_inited) {
+				/*if (!ref_inited) {
 						if (ref_init_start == 0) {
 							ref_init_start = t;
 
 						} else if (t > ref_init_start + ref_init_delay) {
 							ref_inited = true;
-							/* reference GPS position */
 							double lat = 55.813774;
 							double lon = 37.500948;
 							float alt = 10;
@@ -726,12 +725,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 							local_pos.ref_alt = 10000 + z_est[0];
 							local_pos.ref_timestamp = t;
 
-							/* initialize projection */
 							map_projection_init(&ref, lat, lon);
 							warnx("init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
 							mavlink_log_info(mavlink_fd, "[inav] init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
 						}
-					}
+					}*/
 				/*if(!cubie_ref_inited)
 				{
 					/* initialize projection */
@@ -741,10 +739,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				}
 				map_projection_reproject(&cubie_ref, cubie_pos.x, cubie_pos.y, &cubie_lat, &cubie_lon);
 				map_projection_project(&ref, cubie_lat, cubie_lon, &corr_cubie[0], &corr_cubie[1]);*/
-				float cubie_pos_arr[3] = { cubie_pos.x, cubie_pos.y, cubie_pos.z };
+				float cubie_pos_arr[3] = { -cubie_pos.z, -cubie_pos.x, -cubie_pos.y };
+				/* transform vector from body frame to NED frame */
 				if (att.R_valid)
 				{
-						/* transform vector from body frame to NED frame */
 						for (int i = 0; i < 3; i++) {
 							cubie_p[i] = 0.0f;
 
@@ -884,6 +882,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		inertial_filter_correct(corr_baro, dt, z_est, 0, params.w_z_baro);
 		inertial_filter_correct(corr_gps[2][0], dt, z_est, 0, w_z_gps_p);
 		inertial_filter_correct(corr_acc[2], dt, z_est, 2, params.w_z_acc);
+		if (cubie_updated)
+		{
+			inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 1.2f);
+		}
 
 		if (!(isfinite(z_est[0]) && isfinite(z_est[1]) && isfinite(z_est[2]))) {
 			write_debug_log("BAD ESTIMATE AFTER Z CORRECTION", dt, x_est, y_est, z_est, x_est_prev, y_est_prev, z_est_prev, corr_acc, corr_gps, w_xy_gps_p, w_xy_gps_v);
@@ -896,7 +898,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			memcpy(z_est_prev, z_est, sizeof(z_est));
 		}
 
-		if (can_estimate_xy) {
+		if (can_estimate_xy || cubie_updated) {
 			/* inertial filter prediction for position */
 			inertial_filter_predict(dt, x_est);
 			inertial_filter_predict(dt, y_est);
@@ -946,9 +948,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				}
 				else
 				{
-					inertial_filter_correct(corr_cubie[0], dt, x_est, 0, 5.2f);
-					inertial_filter_correct(corr_cubie[1], dt, y_est, 0, 5.2f);
-					inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 5.2f);
+					inertial_filter_correct(corr_cubie[0], dt, x_est, 0, 1.2f);
+					inertial_filter_correct(corr_cubie[1], dt, y_est, 0, 1.2f);
+					inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 1.2f);
 				}
 				mavlink_log_info(mavlink_fd, "[inav] cubie corr_x: %.2f corr_y: %.2f corr_z: %.2f", corr_cubie[0], corr_cubie[1], corr_cubie[2]);
 				cubie_updated = false;

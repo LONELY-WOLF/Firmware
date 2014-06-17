@@ -54,6 +54,7 @@
 #include <poll.h>
 #include <string.h>
 #include <uORB/topics/cubie_pos.h>
+#include <mavlink/mavlink_log.h>
  
 /* file handle that will be used for publishing */
 static int cubie_pos_handle;
@@ -113,6 +114,10 @@ int cubie_main(int argc, char *argv[])
 					 4096,
 					 cubie_thread_main,
 					 (argv) ? (const char **)&argv[2] : (const char **)NULL);
+		
+		int mavlink_fd;
+		mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
+		mavlink_log_info(mavlink_fd, "[cubie] started");
 		return 0;
 	}
 
@@ -240,10 +245,9 @@ int cubie_thread_main(int argc, char *argv[])
 		z = *(int16_t *)((int)buffer + 4);
 		//warnx("x=%03d y=%03d z=%03d", buffer, buffer + 2, buffer + 4);
 		warnx("x=%03d y=%03d z=%03d", x, y, z);
-		/* generate a new random number for publication */
-		pos.x = (float)x / 100.0f;
-		pos.y = (float)y / 100.0f;
-		pos.z = (float)z / 100.0f;
+		pos.x = (float)x * 0.001f;
+		pos.y = (float)y * 0.001f;
+		pos.z = (float)z * 0.001f;
 		/* publish the new data structure */
 		orb_publish(ORB_ID(cubie_position), cubie_pos_handle, &pos);
 		/*dbgx.value = (float)x / 100.0f;

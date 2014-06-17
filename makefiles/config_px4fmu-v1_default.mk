@@ -139,6 +139,8 @@ MODULES		+= lib/launchdetection
 # Hardware test
 #MODULES			+= examples/hwtest
 
+MODULES		+= modules/cubie
+
 #
 # Transitional support - add commands from the NuttX export archive.
 #
