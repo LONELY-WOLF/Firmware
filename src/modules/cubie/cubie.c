@@ -141,6 +141,7 @@ int cubie_main(int argc, char *argv[])
 
 int cubie_thread_main(int argc, char *argv[])
 {
+	int mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
 	fd_set rfds;
 	struct timeval tv;
 	int retval;
@@ -170,9 +171,10 @@ int cubie_thread_main(int argc, char *argv[])
 	}
 	struct pollfd fds = { .fd = uart2, .events = POLLIN };
 	
-	uint8_t *buffer[32];
+	uint8_t buffer[32];
 	uint8_t buf_size = 0;
 	int16_t x = 0, y = 0, z = 0;
+	uint16_t ux = 0, uy = 0, uz = 0;
 
 	//warnx("1");
 	
@@ -212,7 +214,7 @@ int cubie_thread_main(int argc, char *argv[])
 			warnx("bytes read: %d", read(uart2, buffer, 1));
 			if((unsigned char)buffer[0] == (unsigned char)0x1F) i++;
 			else i = 0;
-			warnx("i= %d char= %X", i, (unsigned char)buffer[0]);
+			//warnx("i= %d char= %X", i, (unsigned char)buffer[0]);
 		}
 		/*dbgx.value = 4.0f;
 		orb_publish(ORB_ID(debug_key_value), pub_dbgx, &dbgx);*/
@@ -240,14 +242,25 @@ int cubie_thread_main(int argc, char *argv[])
 			buf_size += read(uart2, buffer + buf_size, 6 - buf_size);
 		}
 		//TODO: checksum
-		x = *(int16_t *)(buffer);
-		y = *(int16_t *)((int)buffer + 2);
-		z = *(int16_t *)((int)buffer + 4);
+		//mavlink_log_info(mavlink_fd, "buf: %x %x %x %x %x %x", buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5]);
+		ux = *(uint16_t *)(buffer);
+		uy = *(uint16_t *)(buffer + 2);
+		uz = *(uint16_t *)(buffer + 4);
+		/*ux = (ux >> 8) | (ux << 8);
+		uy = (uy >> 8) | (uy << 8);
+		uz = (uz >> 8) | (uz << 8);*/
+		x = *(int16_t *)(&ux);
+		y = *(int16_t *)(&uy);
+		z = *(int16_t *)(&uz);
+		pos.x = x;
+		pos.y = y;
+		pos.z = z;
+		//mavlink_log_info(mavlink_fd, "pos: %.3f %.3f %.3f", pos.x, pos.y, pos.z);
 		//warnx("x=%03d y=%03d z=%03d", buffer, buffer + 2, buffer + 4);
-		warnx("x=%03d y=%03d z=%03d", x, y, z);
-		pos.x = (float)x * 0.001f;
-		pos.y = (float)y * 0.001f;
-		pos.z = (float)z * 0.001f;
+		//warnx("x=%03d y=%03d z=%03d", x, y, z);
+		pos.x *= 0.001f;
+		pos.y *= 0.001f;
+		pos.z *= 0.001f;
 		/* publish the new data structure */
 		orb_publish(ORB_ID(cubie_position), cubie_pos_handle, &pos);
 		/*dbgx.value = (float)x / 100.0f;

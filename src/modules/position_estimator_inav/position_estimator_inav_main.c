@@ -261,6 +261,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	
 	float corr_cubie[] = { 0.0f, 0.0f, 0.0f };
 	float cubie_p[] = { 0.0f, 0.0f, 0.0f };
+	float w_cubie = 1.0f;
 
 	static float min_eph_epv = 2.0f;	// min EPH/EPV, used for weight calculation
 	static float max_eph_epv = 10.0f;	// max EPH/EPV acceptable for estimation
@@ -276,7 +277,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	bool flow_valid = false;		// flow is valid
 	bool flow_accurate = false;		// flow should be accurate (this flag not updated if flow_valid == false)
 	
-	bool cubie_updated = false;
+	bool cubie_valid = false;
+	//char *s_dbg = malloc(256);
+	//FILE *dbglog = fopen("/fs/microsd/dbglog.txt", "w");
 
 	/* declare and safely initialize all structs */
 	struct actuator_controls_s actuator;
@@ -754,11 +757,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				corr_cubie[0] = cubie_p[0] - x_est[0];
 				corr_cubie[1] = cubie_p[1] - y_est[0];
 				corr_cubie[2] = cubie_p[2] - z_est[0];
-				/*corr_cubie[0] = cubie_pos.x - x_est[0];
-				corr_cubie[1] = cubie_pos.y - y_est[0];
-				corr_cubie[2] = cubie_pos.z - z_est[0];*/
-				//mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_p[0], cubie_p[1], cubie_p[2]);
-				cubie_updated = true;
+				/*corr_cubie[0] = cubie_pos_arr[0] - x_est[0];
+				corr_cubie[1] = cubie_pos_arr[1] - y_est[0];
+				corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
+				mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
+				cubie_valid = true;
 			}
 		}
 
@@ -796,13 +799,14 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		bool use_gps_z = ref_inited && gps_valid && params.w_z_gps_p > MIN_VALID_W;
 		/* use flow if it's valid and (accurate or no GPS available) */
 		bool use_flow = flow_valid && (flow_accurate || !use_gps_xy);
+		bool use_cubie = cubie_valid;
 
 		/* try to estimate position during some time after position sources lost */
 		if (use_gps_xy || use_flow) {
 			xy_src_time = t;
 		}
 
-		bool can_estimate_xy = eph < max_eph_epv * 1.5;
+		bool can_estimate_xy = (eph < max_eph_epv * 1.5) || use_cubie;
 
 		bool dist_bottom_valid = (t < sonar_valid_time + sonar_valid_timeout);
 
@@ -854,8 +858,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		}
 		
 		//for cubie
-		//accel_bias_corr[0] -= corr_cubie[0] * 2.2 * 2.2;
-		//accel_bias_corr[1] -= corr_cubie[1] * 2.2 * 2.2;
+		accel_bias_corr[0] -= corr_cubie[0] * w_cubie * w_cubie;
+		accel_bias_corr[1] -= corr_cubie[1] * w_cubie * w_cubie;
 
 		accel_bias_corr[2] -= corr_baro * params.w_z_baro * params.w_z_baro;
 
@@ -882,9 +886,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		inertial_filter_correct(corr_baro, dt, z_est, 0, params.w_z_baro);
 		inertial_filter_correct(corr_gps[2][0], dt, z_est, 0, w_z_gps_p);
 		inertial_filter_correct(corr_acc[2], dt, z_est, 2, params.w_z_acc);
-		if (cubie_updated)
+		if (use_cubie)
 		{
-			inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 1.0f);
+			inertial_filter_correct(corr_cubie[2], dt, z_est, 0, w_cubie);
 		}
 
 		if (!(isfinite(z_est[0]) && isfinite(z_est[1]) && isfinite(z_est[2]))) {
@@ -898,7 +902,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			memcpy(z_est_prev, z_est, sizeof(z_est));
 		}
 
-		if (can_estimate_xy || true) {
+		if (can_estimate_xy) {
 			/* inertial filter prediction for position */
 			inertial_filter_predict(dt, x_est);
 			inertial_filter_predict(dt, y_est);
@@ -929,10 +933,13 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			}
 
 			//cubie
-			if(cubie_updated)
+			if(use_cubie)
 			{
-				inertial_filter_correct(corr_cubie[0], dt, x_est, 0, 1.0f);
-				inertial_filter_correct(corr_cubie[1], dt, y_est, 0, 1.0f);
+				inertial_filter_correct(corr_cubie[0], dt, x_est, 0, w_cubie);
+				inertial_filter_correct(corr_cubie[1], dt, y_est, 0, w_cubie);
+				//mavlink_log_info(mavlink_fd, "%.6f %.3f %.3f %.3f %.3f %.3f\r\n", dt, x_est[0], x_est[1], x_est[2], corr_cubie[0], corr_acc[0]);
+				//fprintf(dbglog, "%f %f %f %f %f %f\r\n", dt, x_est[0], x_est[1], x_est[2], corr_cubie[0], corr_acc[0]);
+				//fflush(dbglog);
 				//inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 1.0f);
 				//mavlink_log_info(mavlink_fd, "[inav] cubie corr_x: %.2f corr_y: %.2f corr_z: %.2f", corr_cubie[0], corr_cubie[1], corr_cubie[2]);
 			}
