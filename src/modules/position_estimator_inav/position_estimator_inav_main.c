@@ -82,6 +82,7 @@ static const hrt_abstime gps_topic_timeout = 1000000;		// GPS topic timeout = 1s
 static const hrt_abstime flow_topic_timeout = 1000000;	// optical flow topic timeout = 1s
 static const hrt_abstime sonar_timeout = 150000;	// sonar timeout = 150ms
 static const hrt_abstime sonar_valid_timeout = 1000000;	// estimate sonar distance during this time after sonar loss
+static const hrt_abstime cubie_timeout = 500000; // 500 ms
 static const hrt_abstime xy_src_timeout = 2000000;	// estimate position during this time after position sources loss
 static const uint32_t updates_counter_len = 1000000;
 static const uint32_t pub_interval = 10000;	// limit publish rate to 100 Hz
@@ -271,6 +272,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	hrt_abstime sonar_time = 0;			// time of last sonar measurement (not filtered)
 	hrt_abstime sonar_valid_time = 0;	// time of last sonar measurement used for correction (filtered)
 	hrt_abstime xy_src_time = 0;		// time of last available position data
+	hrt_abstime cubie_time = 0;
 
 	bool gps_valid = false;			// GPS is valid
 	bool sonar_valid = false;		// sonar is valid
@@ -757,10 +759,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				corr_cubie[0] = cubie_p[0] - x_est[0];
 				corr_cubie[1] = cubie_p[1] - y_est[0];
 				corr_cubie[2] = cubie_p[2] - z_est[0];
+				cubie_time = t;
 				/*corr_cubie[0] = cubie_pos_arr[0] - x_est[0];
 				corr_cubie[1] = cubie_pos_arr[1] - y_est[0];
 				corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
-				mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
+				//mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
 				cubie_valid = true;
 			}
 		}
@@ -799,7 +802,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		bool use_gps_z = ref_inited && gps_valid && params.w_z_gps_p > MIN_VALID_W;
 		/* use flow if it's valid and (accurate or no GPS available) */
 		bool use_flow = flow_valid && (flow_accurate || !use_gps_xy);
-		bool use_cubie = cubie_valid;
+		bool use_cubie = cubie_valid && (t < cubie_time + cubie_timeout);
 
 		/* try to estimate position during some time after position sources lost */
 		if (use_gps_xy || use_flow) {
