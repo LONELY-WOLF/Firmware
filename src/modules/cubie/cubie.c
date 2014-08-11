@@ -43,6 +43,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <termios.h>
 #include <sys/select.h>
 #include <sys/time.h>
 
@@ -117,7 +118,7 @@ int cubie_main(int argc, char *argv[])
 		
 		int mavlink_fd;
 		mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
-		mavlink_log_info(mavlink_fd, "[cubie] started");
+		mavlink_log_info(mavlink_fd, "[cubie] started on %s", argv[2]);
 		return 0;
 	}
 
@@ -159,7 +160,7 @@ int cubie_thread_main(int argc, char *argv[])
 	orb_advert_t pub_dbgz = orb_advertise(ORB_ID(debug_key_value), &dbgz);*/
 	
 	//Init
-	int uart2 = open("/dev/ttyS1", O_RDONLY | O_NOCTTY);
+	int uart2 = open(argv[1], O_RDONLY | O_NOCTTY);
 	if(uart2 >= 0)
 	{
 		warnx("port is open\n");
@@ -169,6 +170,14 @@ int cubie_thread_main(int argc, char *argv[])
 		warnx("port is NOT open\n");
 		return 1;
 	}
+	
+	//Set baud rate
+	struct termios uart_config;
+	tcgetattr(uart2, &uart_config);
+	cfsetispeed(&uart_config, B57600);
+	cfsetospeed(&uart_config, B57600);
+	tcsetattr(uart2, TCSANOW, &uart_config);
+	
 	struct pollfd fds = { .fd = uart2, .events = POLLIN };
 	
 	uint8_t buffer[32];
