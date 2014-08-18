@@ -71,6 +71,10 @@
 #include "position_estimator_inav_params.h"
 #include "inertial_filter.h"
 
+PARAM_DEFINE_FLOAT(REF_LAT, 0.0f);
+PARAM_DEFINE_FLOAT(REF_LON, 0.0f);
+PARAM_DEFINE_FLOAT(REF_ATT, 0.0f);
+
 #define MIN_VALID_W 0.00001f
 
 static bool thread_should_exit = false; /**< Deamon exit flag */
@@ -227,7 +231,20 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	struct map_projection_reference_s ref;
 	memset(&ref, 0, sizeof(ref));
 	hrt_abstime home_timestamp = 0;
+	
+	bool cubie_ref_inited = false;
+	struct map_projection_reference_s cubie_ref;
+	memset(&cubie_ref, 0, sizeof(cubie_ref));
 	double cubie_lat = 0.0, cubie_lon = 0.0;
+	param_t param_ref_lat = param_find("REF_LAT");
+	param_t param_ref_lon = param_find("REF_LON");
+	param_t param_ref_att = param_find("REF_ATT");
+	float paramf_lat;
+	param_get(param_ref_lat, &paramf_lat);
+	float paramf_lon;
+	param_get(param_ref_lon, &paramf_lon);
+	float paramf_att;
+	param_get(param_ref_att, &paramf_att);
 
 	uint16_t accel_updates = 0;
 	uint16_t baro_updates = 0;
@@ -402,6 +419,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				struct parameter_update_s update;
 				orb_copy(ORB_ID(parameter_update), parameter_update_sub, &update);
 				parameters_update(&pos_inav_param_handles, &params);
+				
+				param_get(param_ref_lat, &paramf_lat);
+				param_get(param_ref_lat, &paramf_lon);
+				param_get(param_ref_att, &paramf_att);
+				cubie_ref_inited = false;
 			}
 
 			/* actuator */
@@ -735,15 +757,24 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 							mavlink_log_info(mavlink_fd, "[inav] init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
 						}
 					}*/
-				/*if(!cubie_ref_inited)
+				if(!cubie_ref_inited)
 				{
 					/* initialize projection */
-					/*map_projection_init(&cubie_ref, 55.813774, 37.500948);
-					map_projection_init(&ref, 0.0, 0.0);
+					map_projection_init(&cubie_ref, paramf_lat, paramf_lon);
+					if(!ref_inited)
+					{
+						map_projection_init(&ref, paramf_lat, paramf_lon);
+						//ref_inited = true;
+						x_est[1] = 0.0f;
+						x_est[2] = 0.0f;
+						y_est[1] = 0.0f;
+						y_est[2] = 0.0f;
+						z_est[1] = 0.0f;
+						z_est[2] = 0.0f;
+					}
+					mavlink_log_info(mavlink_fd, "[inav] init cubie_ref: lat=%.7f, lon=%.7f", paramf_lat, paramf_lon);
 					cubie_ref_inited = true;
 				}
-				map_projection_reproject(&cubie_ref, cubie_pos.x, cubie_pos.y, &cubie_lat, &cubie_lon);
-				map_projection_project(&ref, cubie_lat, cubie_lon, &corr_cubie[0], &corr_cubie[1]);*/
 				float cubie_pos_arr[3] = { -cubie_pos.z, -cubie_pos.x, cubie_pos.y };
 				/* transform vector from body frame to NED frame */
 				if (att.R_valid)
@@ -756,14 +787,16 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 						}
 					}
 				}
-				corr_cubie[0] = cubie_p[0] - x_est[0];
-				corr_cubie[1] = cubie_p[1] - y_est[0];
-				corr_cubie[2] = cubie_p[2] - z_est[0];
+				map_projection_reproject(&cubie_ref, cubie_p[0], cubie_p[1], &cubie_lat, &cubie_lon);
+				map_projection_project(&ref, cubie_lat, cubie_lon, &corr_cubie[0], &corr_cubie[1]);
+				corr_cubie[0] -= x_est[0];
+				corr_cubie[1] -= y_est[0];
+				corr_cubie[2] = (cubie_p[2] + paramf_att) - z_est[0];
 				cubie_time = t;
 				/*corr_cubie[0] = cubie_pos_arr[0] - x_est[0];
 				corr_cubie[1] = cubie_pos_arr[1] - y_est[0];
 				corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
-				//mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
+				mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
 				cubie_valid = true;
 			}
 		}
@@ -863,6 +896,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		//for cubie
 		accel_bias_corr[0] -= corr_cubie[0] * w_cubie * w_cubie;
 		accel_bias_corr[1] -= corr_cubie[1] * w_cubie * w_cubie;
+		accel_bias_corr[2] -= corr_cubie[2] * w_cubie * w_cubie;
 
 		accel_bias_corr[2] -= corr_baro * params.w_z_baro * params.w_z_baro;
 
@@ -1017,8 +1051,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			/* publish local position */
 			local_pos.xy_valid = can_estimate_xy;
 			local_pos.v_xy_valid = can_estimate_xy;
-			local_pos.xy_global = local_pos.xy_valid && use_gps_xy;
-			local_pos.z_global = local_pos.z_valid && use_gps_z;
+			local_pos.xy_global = local_pos.xy_valid && (use_gps_xy || use_cubie);
+			local_pos.z_global = local_pos.z_valid && (use_gps_z || use_cubie);
 			local_pos.x = x_est[0];
 			local_pos.vx = x_est[1];
 			local_pos.y = y_est[0];
