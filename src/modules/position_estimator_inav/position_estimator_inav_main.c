@@ -739,6 +739,25 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				orb_copy(ORB_ID(cubie_position), cubie_pos_sub, &cubie_pos);
 				if(ref_inited && gps_valid)
 				{
+					if(!cubie_ref_inited)
+					{
+						/* initialize projection */
+						map_projection_init(&cubie_ref, paramf_lat, paramf_lon);
+						/*if(!ref_inited)
+						{
+							map_projection_init(&ref, paramf_lat, paramf_lon);
+							//ref_inited = true;
+							x_est[1] = 0.0f;
+							x_est[2] = 0.0f;
+							y_est[1] = 0.0f;
+							y_est[2] = 0.0f;
+							z_est[1] = 0.0f;
+							z_est[2] = 0.0f;
+						}*/
+						mavlink_log_info(mavlink_fd, "[inav] init cubie_ref: lat=%.7f, lon=%.7f", paramf_lat, paramf_lon);
+						cubie_ref_inited = true;
+					}
+				
 					float gps_proj[2];
 					double lat = gps.lat * 1e-7;
 					double lon = gps.lon * 1e-7;
@@ -758,8 +777,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 					}
 					float tmp_x, tmp_y;
 					tmp_x = (gps_proj[0] - cubie_pos_arr[0]) * (gps_proj[0] - cubie_pos_arr[0]);
-					tmp_x = (gps_proj[1] - cubie_pos_arr[1]) * (gps_proj[1] - cubie_pos_arr[1]);
-					bool near_mark = (tmp_x + tmp_y) < 9.0f; // < 3 meters
+					tmp_y = (gps_proj[1] - cubie_pos_arr[1]) * (gps_proj[1] - cubie_pos_arr[1]);
+					//mavlink_log_info(mavlink_fd, "[inav] tmp: x=%.7f, y=%.7f", tmp_x, tmp_y);
+					bool near_mark = (tmp_x + tmp_y) < 100.0f; // < 3 meters
 					if(near_mark)
 					{
 						/*if (!ref_inited) {
@@ -782,26 +802,6 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 									mavlink_log_info(mavlink_fd, "[inav] init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
 								}
 							}*/
-						if(!cubie_ref_inited)
-						{
-							/* initialize projection */
-							map_projection_init(&cubie_ref, paramf_lat, paramf_lon);
-							/*if(!ref_inited)
-							{
-								map_projection_init(&ref, paramf_lat, paramf_lon);
-								//ref_inited = true;
-								x_est[1] = 0.0f;
-								x_est[2] = 0.0f;
-								y_est[1] = 0.0f;
-								y_est[2] = 0.0f;
-								z_est[1] = 0.0f;
-								z_est[2] = 0.0f;
-							}*/
-							mavlink_log_info(mavlink_fd, "[inav] init cubie_ref: lat=%.7f, lon=%.7f", paramf_lat, paramf_lon);
-							cubie_ref_inited = true;
-						}
-					
-					
 						map_projection_reproject(&cubie_ref, cubie_p[0], cubie_p[1], &cubie_lat, &cubie_lon);
 						map_projection_project(&ref, cubie_lat, cubie_lon, &corr_cubie[0], &corr_cubie[1]);
 						corr_cubie[0] -= x_est[0];
@@ -813,6 +813,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 						corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
 						mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
 						cubie_valid = true;
+					}
+					else
+					{
+						mavlink_log_info(mavlink_fd, "[inav] cubie far from mark");
 					}
 				}
 			}
