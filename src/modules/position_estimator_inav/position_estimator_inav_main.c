@@ -980,13 +980,28 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				inertial_filter_correct(corr_flow[1], dt, y_est, 1, params.w_xy_flow * w_flow);
 			}
 
-			if (use_gps_xy) {
-				inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p);
-				inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p);
+			if(use_cubie)
+			{
+				if (use_gps_xy) {
+					inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p * 0.01f);
+					inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p * 0.01f);
 
-				if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
-					inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v);
-					inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v);
+					if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
+						inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v * 0.01f);
+						inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v * 0.01f);
+					}
+				}
+			}
+			else
+			{
+				if (use_gps_xy) {
+					inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p);
+					inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p);
+
+					if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
+						inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v);
+						inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v);
+					}
 				}
 			}
 
