@@ -899,10 +899,20 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		float accel_bias_corr[3] = { 0.0f, 0.0f, 0.0f };
 
 		if (use_gps_xy) {
-			accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p;
-			accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v;
-			accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p;
-			accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v;
+			if(use_cubie)
+			{
+				accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p * 0.01f * 0.01f;
+				accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v;
+				accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p * 0.01f * 0.01f;
+				accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v;
+			}
+			else
+			{
+				accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p;
+				accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v;
+				accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p;
+				accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v;
+			}
 		}
 
 		if (use_gps_z) {
