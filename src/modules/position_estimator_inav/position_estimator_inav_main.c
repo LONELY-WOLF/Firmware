@@ -271,6 +271,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	};
 	float w_gps_xy = 1.0f;
 	float w_gps_z = 1.0f;
+	float w_gps_cubie = 1.0f;
 	float corr_sonar = 0.0f;
 	float corr_sonar_filtered = 0.0f;
 
@@ -901,18 +902,18 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		if (use_gps_xy) {
 			if(use_cubie)
 			{
-				accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p * 0.01f * 0.01f;
-				accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v;
-				accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p * 0.01f * 0.01f;
-				accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v;
+				w_gps_cubie -= 0.25;
 			}
 			else
 			{
-				accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p;
-				accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v;
-				accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p;
-				accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v;
+				w_gps_cubie += 0.25;
 			}
+			if (w_gps_cubie < 0.0f) w_gps_cubie = 0.0f;
+			if (w_gps_cubie > 1.0f) w_gps_cubie = 1.0f;
+			accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p * w_gps_cubie * w_gps_cubie;
+			accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v * w_gps_cubie;
+			accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p * w_gps_cubie * w_gps_cubie;
+			accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v * w_gps_cubie;
 		}
 
 		if (use_gps_z) {
@@ -990,31 +991,16 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				inertial_filter_correct(corr_flow[1], dt, y_est, 1, params.w_xy_flow * w_flow);
 			}
 
-			if(use_cubie)
-			{
-				if (use_gps_xy) {
-					inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p * 0.01f);
-					inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p * 0.01f);
+			if (use_gps_xy) {
+				inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p * w_gps_cubie);
+				inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p * w_gps_cubie);
 
-					if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
-						inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v * 0.01f);
-						inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v * 0.01f);
-					}
+				if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
+					inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v * w_gps_cubie);
+					inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v * w_gps_cubie);
 				}
 			}
-			else
-			{
-				if (use_gps_xy) {
-					inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p);
-					inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p);
-
-					if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
-						inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v);
-						inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v);
-					}
-				}
-			}
-
+			
 			//cubie
 			if(use_cubie)
 			{
