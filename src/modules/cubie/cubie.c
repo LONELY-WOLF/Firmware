@@ -142,9 +142,9 @@ int cubie_main(int argc, char *argv[])
 
 int cubie_thread_main(int argc, char *argv[])
 {
-	int mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
-	fd_set rfds;
-	struct timeval tv;
+	//int mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
+	//fd_set rfds;
+	//struct timeval tv;
 	int retval;
 
 	warnx("[cubie] starting\n");
@@ -288,5 +288,5 @@ DeInit:
 
 	thread_running = false;
 
-	exit(0);
+	return 0;
 }

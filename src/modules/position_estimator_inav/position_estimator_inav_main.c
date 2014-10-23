@@ -842,7 +842,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 							z_est[1] = 0.0f;
 							z_est[2] = 0.0f;
 						}*/
-						mavlink_log_info(mavlink_fd, "[inav] init cubie_ref: lat=%.7f, lon=%.7f", paramf_lat, paramf_lon);
+						mavlink_log_info(mavlink_fd, "[inav] init cubie_ref: lat=%.7f, lon=%.7f", (double)paramf_lat, (double)paramf_lon);
 						cubie_ref_inited = true;
 					}
 				
@@ -899,7 +899,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 						/*corr_cubie[0] = cubie_pos_arr[0] - x_est[0];
 						corr_cubie[1] = cubie_pos_arr[1] - y_est[0];
 						corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
-						mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", cubie_pos_arr[0], cubie_pos_arr[1], cubie_pos_arr[2]);
+						mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", (double)cubie_pos_arr[0], (double)cubie_pos_arr[1], (double)cubie_pos_arr[2]);
 						cubie_valid = true;
 					}
 					else
@@ -1008,11 +1008,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		if (use_gps_xy) {
 			if(use_cubie)
 			{
-				w_gps_cubie -= 0.25;
+				w_gps_cubie -= 0.25f;
 			}
 			else
 			{
-				w_gps_cubie += 0.25;
+				w_gps_cubie += 0.25f;
 			}
 			if (w_gps_cubie < 0.0f) w_gps_cubie = 0.0f;
 			if (w_gps_cubie > 1.0f) w_gps_cubie = 1.0f;
