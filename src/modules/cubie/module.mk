@@ -1,2 +1,4 @@
-MODULE_COMMAND	= cubie
-SRCS			= cubie.c
+MODULE_COMMAND	 = cubie
+SRCS             = cubie.c
+
+MAXOPTIMIZATION	 = -Os
