@@ -1077,13 +1077,16 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			accel_bias_corr[0] -= corr_flow[0] * params.w_xy_flow;
 			accel_bias_corr[1] -= corr_flow[1] * params.w_xy_flow;
 		}
-		
-		//for cubie
-		accel_bias_corr[0] -= corr_cubie[0] * w_cubie * w_cubie;
-		accel_bias_corr[1] -= corr_cubie[1] * w_cubie * w_cubie;
-		accel_bias_corr[2] -= corr_cubie[2] * w_cubie * w_cubie;
 
 		accel_bias_corr[2] -= corr_baro * params.w_z_baro * params.w_z_baro;
+		
+		//for cubie
+		if(use_cubie)
+		{
+			accel_bias_corr[0] -= corr_cubie[0] * w_cubie * w_cubie;
+			accel_bias_corr[1] -= corr_cubie[1] * w_cubie * w_cubie;
+			//accel_bias_corr[2] -= corr_cubie[2] * w_cubie * w_cubie;
+		}
 
 		/* transform error vector from NED frame to body frame */
 		for (int i = 0; i < 3; i++) {
