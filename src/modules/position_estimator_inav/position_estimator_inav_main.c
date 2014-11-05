@@ -467,7 +467,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				parameters_update(&pos_inav_param_handles, &params);
 				
 				param_get(param_ref_lat, &paramf_lat);
-				param_get(param_ref_lat, &paramf_lon);
+				param_get(param_ref_lon, &paramf_lon);
 				param_get(param_ref_alt, &paramf_alt);
 				cubie_ref_inited = false;
 			}
