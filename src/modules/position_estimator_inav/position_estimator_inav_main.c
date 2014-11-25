@@ -907,6 +907,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 						mavlink_log_info(mavlink_fd, "[inav] cubie far from mark");
 					}
 				}
+				else
+				{
+					mavlink_log_info(mavlink_fd, "[inav] cubie: No GPS");
+				}
 			}
 		}
 
