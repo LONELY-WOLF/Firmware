@@ -90,6 +90,7 @@
 #include <uORB/topics/system_power.h>
 #include <uORB/topics/servorail_status.h>
 #include <uORB/topics/wind_estimate.h>
+#include <uORB/topics/cubie_pos.h>
 
 #include <systemlib/systemlib.h>
 #include <systemlib/param/param.h>
@@ -937,8 +938,8 @@ int sdlog2_thread_main(int argc, char *argv[])
 		struct vehicle_local_position_setpoint_s local_pos_sp;
 		struct vehicle_global_position_s global_pos;
 		struct position_setpoint_triplet_s triplet;
-		struct vehicle_vicon_position_s vicon_pos;
-		struct vision_position_estimate vision_pos;
+		//struct vehicle_vicon_position_s vicon_pos;
+		//struct vision_position_estimate vision_pos;
 		struct optical_flow_s flow;
 		struct rc_channels_s rc;
 		struct differential_pressure_s diff_pres;
@@ -954,6 +955,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 		struct servorail_status_s servorail_status;
 		struct satellite_info_s sat_info;
 		struct wind_estimate_s wind_estimate;
+		struct cubie_pos_s cubie_pos;
 	} buf;
 
 	memset(&buf, 0, sizeof(buf));
@@ -996,6 +998,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 			struct log_GS1B_s log_GS1B;
 			struct log_TECS_s log_TECS;
 			struct log_WIND_s log_WIND;
+			struct log_CUBI_s log_CUBI;
 		} body;
 	} log_msg = {
 		LOG_PACKET_HEADER_INIT(0)
@@ -1018,8 +1021,8 @@ int sdlog2_thread_main(int argc, char *argv[])
 		int triplet_sub;
 		int gps_pos_sub;
 		int sat_info_sub;
-		int vicon_pos_sub;
-		int vision_pos_sub;
+		//int vicon_pos_sub;
+		//int vision_pos_sub;
 		int flow_sub;
 		int rc_sub;
 		int airspeed_sub;
@@ -1033,6 +1036,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 		int system_power_sub;
 		int servorail_status_sub;
 		int wind_sub;
+		int cubie_sub;
 	} subs;
 
 	subs.cmd_sub = orb_subscribe(ORB_ID(vehicle_command));
@@ -1049,8 +1053,8 @@ int sdlog2_thread_main(int argc, char *argv[])
 	subs.local_pos_sp_sub = orb_subscribe(ORB_ID(vehicle_local_position_setpoint));
 	subs.global_pos_sub = orb_subscribe(ORB_ID(vehicle_global_position));
 	subs.triplet_sub = orb_subscribe(ORB_ID(position_setpoint_triplet));
-	subs.vicon_pos_sub = orb_subscribe(ORB_ID(vehicle_vicon_position));
-	subs.vision_pos_sub = orb_subscribe(ORB_ID(vision_position_estimate));
+	//subs.vicon_pos_sub = orb_subscribe(ORB_ID(vehicle_vicon_position));
+	//subs.vision_pos_sub = orb_subscribe(ORB_ID(vision_position_estimate));
 	subs.flow_sub = orb_subscribe(ORB_ID(optical_flow));
 	subs.rc_sub = orb_subscribe(ORB_ID(rc_channels));
 	subs.airspeed_sub = orb_subscribe(ORB_ID(airspeed));
@@ -1068,6 +1072,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 	subs.wind_sub = orb_subscribe(ORB_ID(wind_estimate));
 	/* we need to rate-limit wind, as we do not need the full update rate */
 	orb_set_interval(subs.wind_sub, 90);
+	subs.cubie_sub = orb_subscribe(ORB_ID(cubie_position));
 
 	thread_running = true;
 
@@ -1449,8 +1454,8 @@ int sdlog2_thread_main(int argc, char *argv[])
 			if (buf.triplet.current.valid) {
 				log_msg.msg_type = LOG_GPSP_MSG;
 				log_msg.body.log_GPSP.nav_state = buf.triplet.nav_state;
-				log_msg.body.log_GPSP.lat = (int32_t)(buf.triplet.current.lat * 1e7d);
-				log_msg.body.log_GPSP.lon = (int32_t)(buf.triplet.current.lon * 1e7d);
+				log_msg.body.log_GPSP.lat = (int32_t)(buf.triplet.current.lat * 1e7);
+				log_msg.body.log_GPSP.lon = (int32_t)(buf.triplet.current.lon * 1e7);
 				log_msg.body.log_GPSP.alt = buf.triplet.current.alt;
 				log_msg.body.log_GPSP.yaw = buf.triplet.current.yaw;
 				log_msg.body.log_GPSP.type = buf.triplet.current.type;
@@ -1462,7 +1467,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 		}
 
 		/* --- VICON POSITION --- */
-		if (copy_if_updated(ORB_ID(vehicle_vicon_position), subs.vicon_pos_sub, &buf.vicon_pos)) {
+		/*if (copy_if_updated(ORB_ID(vehicle_vicon_position), subs.vicon_pos_sub, &buf.vicon_pos)) {
 			log_msg.msg_type = LOG_VICN_MSG;
 			log_msg.body.log_VICN.x = buf.vicon_pos.x;
 			log_msg.body.log_VICN.y = buf.vicon_pos.y;
@@ -1471,10 +1476,10 @@ int sdlog2_thread_main(int argc, char *argv[])
 			log_msg.body.log_VICN.roll = buf.vicon_pos.roll;
 			log_msg.body.log_VICN.yaw = buf.vicon_pos.yaw;
 			LOGBUFFER_WRITE_AND_COUNT(VICN);
-		}
+		}*/
 
 		/* --- VISION POSITION --- */
-		if (copy_if_updated(ORB_ID(vision_position_estimate), subs.vision_pos_sub, &buf.vision_pos)) {
+		/*if (copy_if_updated(ORB_ID(vision_position_estimate), subs.vision_pos_sub, &buf.vision_pos)) {
 			log_msg.msg_type = LOG_VISN_MSG;
 			log_msg.body.log_VISN.x = buf.vision_pos.x;
 			log_msg.body.log_VISN.y = buf.vision_pos.y;
@@ -1487,7 +1492,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 			log_msg.body.log_VISN.qz = buf.vision_pos.q[2];
 			log_msg.body.log_VISN.qw = buf.vision_pos.q[3];
 			LOGBUFFER_WRITE_AND_COUNT(VISN);
-		}
+		}*/
 
 		/* --- FLOW --- */
 		if (copy_if_updated(ORB_ID(optical_flow), subs.flow_sub, &buf.flow)) {
@@ -1650,6 +1655,19 @@ int sdlog2_thread_main(int argc, char *argv[])
 			log_msg.body.log_WIND.cov_x = buf.wind_estimate.covariance_north;
 			log_msg.body.log_WIND.cov_y = buf.wind_estimate.covariance_east;
 			LOGBUFFER_WRITE_AND_COUNT(WIND);
+		}
+
+		/* --- CUBIE POSITION --- */
+		//mavlink_log_info(mavlink_fd, "[sdlog2] before log cubie");
+		if (copy_if_updated(ORB_ID(cubie_position), subs.cubie_sub, &buf.cubie_pos)) {
+			mavlink_log_info(mavlink_fd, "[sdlog2] start log cubie");
+			log_msg.msg_type = LOG_CUBI_MSG;
+			log_msg.body.log_CUBI.x = buf.cubie_pos.x;
+			log_msg.body.log_CUBI.y = buf.cubie_pos.y;
+			log_msg.body.log_CUBI.z = buf.cubie_pos.z;
+			mavlink_log_info(mavlink_fd, "[sdlog2] log cubie %.3f %.3f %.3f", (double)log_msg.body.log_CUBI.x, (double)log_msg.body.log_CUBI.y, (double)log_msg.body.log_CUBI.z);
+			LOGBUFFER_WRITE_AND_COUNT(CUBI);
+			mavlink_log_info(mavlink_fd, "[sdlog2] end log cubie");
 		}
 
 		/* signal the other thread new data, but not yet unlock */
