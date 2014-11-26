@@ -1660,14 +1660,14 @@ int sdlog2_thread_main(int argc, char *argv[])
 		/* --- CUBIE POSITION --- */
 		//mavlink_log_info(mavlink_fd, "[sdlog2] before log cubie");
 		if (copy_if_updated(ORB_ID(cubie_position), subs.cubie_sub, &buf.cubie_pos)) {
-			mavlink_log_info(mavlink_fd, "[sdlog2] start log cubie");
+			//mavlink_log_info(mavlink_fd, "[sdlog2] start log cubie");
 			log_msg.msg_type = LOG_CUBI_MSG;
 			log_msg.body.log_CUBI.x = buf.cubie_pos.x;
 			log_msg.body.log_CUBI.y = buf.cubie_pos.y;
 			log_msg.body.log_CUBI.z = buf.cubie_pos.z;
-			mavlink_log_info(mavlink_fd, "[sdlog2] log cubie %.3f %.3f %.3f", (double)log_msg.body.log_CUBI.x, (double)log_msg.body.log_CUBI.y, (double)log_msg.body.log_CUBI.z);
+			//mavlink_log_info(mavlink_fd, "[sdlog2] log cubie %.3f %.3f %.3f", (double)log_msg.body.log_CUBI.x, (double)log_msg.body.log_CUBI.y, (double)log_msg.body.log_CUBI.z);
 			LOGBUFFER_WRITE_AND_COUNT(CUBI);
-			mavlink_log_info(mavlink_fd, "[sdlog2] end log cubie");
+			//mavlink_log_info(mavlink_fd, "[sdlog2] end log cubie");
 		}
 
 		/* signal the other thread new data, but not yet unlock */
