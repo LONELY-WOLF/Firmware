@@ -1089,7 +1089,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		{
 			accel_bias_corr[0] -= corr_cubie[0] * w_cubie * w_cubie;
 			accel_bias_corr[1] -= corr_cubie[1] * w_cubie * w_cubie;
-			//accel_bias_corr[2] -= corr_cubie[2] * w_cubie * w_cubie;
+			accel_bias_corr[2] -= corr_cubie[2] * w_cubie * w_cubie;
 		}
 
 		/* transform error vector from NED frame to body frame */
@@ -1116,11 +1116,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		/* inertial filter correction for altitude */
 		inertial_filter_correct(corr_baro, dt, z_est, 0, params.w_z_baro);
 		/*inertial_filter_correct(corr_gps[2][0], dt, z_est, 0, w_z_gps_p);
-		inertial_filter_correct(corr_acc[2], dt, z_est, 2, params.w_z_acc);
+		inertial_filter_correct(corr_acc[2], dt, z_est, 2, params.w_z_acc);*/
 		if (use_cubie)
 		{
 			inertial_filter_correct(corr_cubie[2], dt, z_est, 0, w_cubie);
-		}*/
+		}
 
 		if (use_gps_z) {
 			epv = fminf(epv, gps.epv);
