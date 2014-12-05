@@ -1012,11 +1012,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		if (use_gps_xy) {
 			if(use_cubie)
 			{
-				w_gps_cubie -= 0.25f;
+				w_gps_cubie -= 0.1f;
 			}
 			else
 			{
-				w_gps_cubie += 0.25f;
+				w_gps_cubie += 0.0025f;
 			}
 			if (w_gps_cubie < 0.0f) w_gps_cubie = 0.0f;
 			if (w_gps_cubie > 1.0f) w_gps_cubie = 1.0f;
