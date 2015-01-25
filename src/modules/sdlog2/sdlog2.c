@@ -103,6 +103,7 @@
 #include "sdlog2_format.h"
 #include "sdlog2_messages.h"
 
+
 /**
  * Logging rate.
  *
@@ -1416,6 +1417,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 			log_msg.body.log_LPOS.ground_dist_flags = (buf.local_pos.dist_bottom_valid ? 1 : 0);
 			log_msg.body.log_LPOS.eph = buf.local_pos.eph;
 			log_msg.body.log_LPOS.epv = buf.local_pos.epv;
+			log_msg.body.log_LPOS.gpsw = buf.local_pos.gpsw;
 			LOGBUFFER_WRITE_AND_COUNT(LPOS);
 		}
 

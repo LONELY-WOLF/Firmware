@@ -92,10 +92,11 @@ static const hrt_abstime flow_topic_timeout = 1000000;	// optical flow topic tim
 static const hrt_abstime sonar_timeout = 150000;	// sonar timeout = 150ms
 static const hrt_abstime sonar_valid_timeout = 1000000;	// estimate sonar distance during this time after sonar loss
 static const hrt_abstime cubie_timeout = 500000; // 500 ms
-static const hrt_abstime cubie_appeared = 0;
 static const hrt_abstime xy_src_timeout = 2000000;	// estimate position during this time after position sources loss
 static const uint32_t updates_counter_len = 1000000;
 static const float max_flow = 1.0f;	// max flow value that can be used, rad/s
+
+float w_gps_cubie = 1.0f;
 
 __EXPORT int position_estimator_inav_main(int argc, char *argv[]);
 
@@ -293,6 +294,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	hrt_abstime pub_last = hrt_absolute_time();
 
 	hrt_abstime t_prev = 0;
+	hrt_abstime cubie_appeared = 0;
 
 	/* store error when sensor updates, but correct on each time step to avoid jumps in estimated value */
 	float acc[] = { 0.0f, 0.0f, 0.0f };	// N E D
@@ -305,7 +307,6 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	};
 	float w_gps_xy = 1.0f;
 	float w_gps_z = 1.0f;
-	float w_gps_cubie = 1.0f;
 	
 	float corr_vision[3][2] = {
 		{ 0.0f, 0.0f },		// N (pos, vel)
@@ -1313,6 +1314,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			local_pos.dist_bottom_valid = dist_bottom_valid;
 			local_pos.eph = eph;
 			local_pos.epv = epv;
+			local_pos.gpsw = w_gps_cubie;
 
 			if (local_pos.dist_bottom_valid) {
 				local_pos.dist_bottom = -z_est[0] - surface_offset;
