@@ -92,6 +92,7 @@ static const hrt_abstime flow_topic_timeout = 1000000;	// optical flow topic tim
 static const hrt_abstime sonar_timeout = 150000;	// sonar timeout = 150ms
 static const hrt_abstime sonar_valid_timeout = 1000000;	// estimate sonar distance during this time after sonar loss
 static const hrt_abstime cubie_timeout = 500000; // 500 ms
+static const hrt_abstime cubie_appeared = 0;
 static const hrt_abstime xy_src_timeout = 2000000;	// estimate position during this time after position sources loss
 static const uint32_t updates_counter_len = 1000000;
 static const float max_flow = 1.0f;	// max flow value that can be used, rad/s
@@ -336,6 +337,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	bool flow_accurate = false;		// flow should be accurate (this flag not updated if flow_valid == false)
 
 	bool cubie_valid = false;
+	bool use_cubie = false;
 	//char *s_dbg = malloc(256);
 	//FILE *dbglog = fopen("/fs/microsd/dbglog.txt", "w");
 	
@@ -896,6 +898,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 						corr_cubie[1] -= y_est[0];
 						corr_cubie[2] = (cubie_p[2] + paramf_alt) - z_est[0];
 						cubie_time = t;
+						if(!use_cubie)
+						{
+							cubie_appeared = t;
+						}
 						/*corr_cubie[0] = cubie_pos_arr[0] - x_est[0];
 						corr_cubie[1] = cubie_pos_arr[1] - y_est[0];
 						corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
@@ -962,7 +968,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		bool use_vision_z = vision_valid && params.w_z_vision_p > MIN_VALID_W;
 		/* use flow if it's valid and (accurate or no GPS available) */
 		bool use_flow = flow_valid && (flow_accurate || !use_gps_xy);
-		bool use_cubie = cubie_valid && (t < cubie_time + cubie_timeout);
+		use_cubie = cubie_valid && (t < cubie_time + cubie_timeout);
+
 
 		/* try to estimate position during some time after position sources lost */
 		/*if (use_gps_xy || use_flow) {
@@ -1012,11 +1019,11 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		if (use_gps_xy) {
 			if(use_cubie)
 			{
-				w_gps_cubie -= 0.1f;
+				w_gps_cubie = 1.0f - (((float)(t - cubie_appeared)) / 200000.0f); //GPS off in 0.2s
 			}
 			else
 			{
-				w_gps_cubie += 0.0025f;
+				w_gps_cubie = ((float)(t - (cubie_time + cubie_timeout))) / 500000.0f; //back to GPS in 0.5s
 			}
 			if (w_gps_cubie < 0.0f) w_gps_cubie = 0.0f;
 			if (w_gps_cubie > 1.0f) w_gps_cubie = 1.0f;
