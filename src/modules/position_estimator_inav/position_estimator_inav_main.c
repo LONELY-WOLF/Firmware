@@ -1314,7 +1314,6 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			local_pos.dist_bottom_valid = dist_bottom_valid;
 			local_pos.eph = eph;
 			local_pos.epv = epv;
-			local_pos.gpsw = w_gps_cubie;
 
 			if (local_pos.dist_bottom_valid) {
 				local_pos.dist_bottom = -z_est[0] - surface_offset;
@@ -1345,6 +1344,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 
 				global_pos.eph = eph;
 				global_pos.epv = epv;
+				global_pos.gpsw = w_gps_cubie;
 
 				if (vehicle_global_position_pub < 0) {
 					vehicle_global_position_pub = orb_advertise(ORB_ID(vehicle_global_position), &global_pos);

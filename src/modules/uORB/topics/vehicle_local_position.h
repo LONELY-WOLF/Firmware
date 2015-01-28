@@ -85,7 +85,6 @@ struct vehicle_local_position_s {
 	bool dist_bottom_valid;	/**< true if distance to bottom surface is valid */
 	float eph;
 	float epv;
-	float gpsw;
 };
 
 /**
