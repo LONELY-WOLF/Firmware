@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (C) 2012 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2015 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -81,9 +81,7 @@ struct accel_scale {
 /*
  * ObjDev tag for raw accelerometer data.
  */
-ORB_DECLARE(sensor_accel0);
-ORB_DECLARE(sensor_accel1);
-ORB_DECLARE(sensor_accel2);
+ORB_DECLARE(sensor_accel);
 
 /*
  * ioctl() definitions
@@ -98,6 +96,8 @@ ORB_DECLARE(sensor_accel2);
 
 /** set the accel internal sample rate to at least (arg) Hz */
 #define ACCELIOCSSAMPLERATE	_ACCELIOC(0)
+
+#define ACCEL_SAMPLERATE_DEFAULT    1000003	/**< default sample rate */
 
 /** return the accel internal sample rate in Hz */
 #define ACCELIOCGSAMPLERATE	_ACCELIOC(1)

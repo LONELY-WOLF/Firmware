@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012-2014 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2015 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -75,6 +75,10 @@
 #include <systemlib/circuit_breaker.h>
 
 #include <uORB/topics/actuator_controls.h>
+#include <uORB/topics/actuator_controls_0.h>
+#include <uORB/topics/actuator_controls_1.h>
+#include <uORB/topics/actuator_controls_2.h>
+#include <uORB/topics/actuator_controls_3.h>
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/actuator_armed.h>
 #include <uORB/topics/safety.h>
@@ -260,9 +264,9 @@ private:
 
 	int			_mavlink_fd;		///< mavlink file descriptor.
 
-	perf_counter_t		_perf_update;		///<local performance counter for status updates
-	perf_counter_t		_perf_write;		///<local performance counter for PWM control writes
-	perf_counter_t		_perf_chan_count;	///<local performance counter for channel number changes
+	perf_counter_t		_perf_update;		///< local performance counter for status updates
+	perf_counter_t		_perf_write;		///< local performance counter for PWM control writes
+	perf_counter_t		_perf_sample_latency;	///< total system latency (based on passed-through timestamp)
 
 	/* cached IO state */
 	uint16_t		_status;		///< Various IO status flags
@@ -493,7 +497,7 @@ PX4IO::PX4IO(device::Device *interface) :
 	_mavlink_fd(-1),
 	_perf_update(perf_alloc(PC_ELAPSED, "io update")),
 	_perf_write(perf_alloc(PC_ELAPSED, "io write")),
-	_perf_chan_count(perf_alloc(PC_COUNT, "io rc #")),
+	_perf_sample_latency(perf_alloc(PC_ELAPSED, "io latency")),
 	_status(0),
 	_alarms(0),
 	_t_actuator_controls_0(-1),
@@ -551,7 +555,7 @@ PX4IO::~PX4IO()
 	/* deallocate perfs */
 	perf_free(_perf_update);
 	perf_free(_perf_write);
-	perf_free(_perf_chan_count);
+	perf_free(_perf_sample_latency);
 
 	g_dev = nullptr;
 }
@@ -817,6 +821,11 @@ PX4IO::init()
 
 	}
 
+	/* set safety to off if circuit breaker enabled */
+	if (circuit_breaker_enabled("CBRK_IO_SAFETY", CBRK_IO_SAFETY_KEY)) {
+		(void)io_reg_set(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_FORCE_SAFETY_OFF, PX4IO_FORCE_SAFETY_MAGIC);
+	}
+
 	/* try to claim the generic PWM output device node as well - it's OK if we fail at this */
 	ret = register_driver(PWM_OUTPUT_DEVICE_PATH, &fops, 0666, (void *)this);
 
@@ -829,7 +838,7 @@ PX4IO::init()
 	_task = task_spawn_cmd("px4io",
 					SCHED_DEFAULT,
 					SCHED_PRIORITY_ACTUATOR_OUTPUTS,
-					2000,
+					1800,
 					(main_t)&PX4IO::task_main_trampoline,
 					nullptr);
 
@@ -1097,7 +1106,7 @@ PX4IO::io_set_control_state(unsigned group)
 	uint16_t 		regs[_max_actuators];
 
 	/* get controls */
-	bool changed;
+	bool changed = false;
 
 	switch (group) {
 		case 0:
@@ -1106,6 +1115,7 @@ PX4IO::io_set_control_state(unsigned group)
 
 			if (changed) {
 				orb_copy(ORB_ID(actuator_controls_0), _t_actuator_controls_0, &controls);
+				perf_set(_perf_sample_latency, hrt_elapsed_time(&controls.timestamp_sample));
 			}
 		}
 		break;
@@ -1138,11 +1148,13 @@ PX4IO::io_set_control_state(unsigned group)
 		break;
 	}
 
-	if (!changed)
+	if (!changed) {
 		return -1;
+	}
 
-	for (unsigned i = 0; i < _max_controls; i++)
+	for (unsigned i = 0; i < _max_controls; i++) {
 		regs[i] = FLOAT_TO_REG(controls.control[i]);
+	}
 
 	/* copy values to registers in IO */
 	return io_reg_set(PX4IO_PAGE_CONTROLS, group * PX4IO_PROTOCOL_MAX_CONTROL_COUNT, regs, _max_controls);
@@ -1155,52 +1167,54 @@ PX4IO::io_set_arming_state()
 	actuator_armed_s	armed;		///< system armed state
 	vehicle_control_mode_s	control_mode;	///< vehicle_control_mode
 
-	orb_copy(ORB_ID(actuator_armed), _t_actuator_armed, &armed);
-	orb_copy(ORB_ID(vehicle_control_mode), _t_vehicle_control_mode, &control_mode);
+	int have_armed = orb_copy(ORB_ID(actuator_armed), _t_actuator_armed, &armed);
+	int have_control_mode = orb_copy(ORB_ID(vehicle_control_mode), _t_vehicle_control_mode, &control_mode);
 
 	uint16_t set = 0;
 	uint16_t clear = 0;
 
-	if (armed.armed) {
-		set |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+        if (have_armed == OK) {
+		if (armed.armed) {
+			set |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+		}
 
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_FMU_ARMED;
+		if (armed.lockdown && !_lockdown_override) {
+			set |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
+		}
+
+		/* Do not set failsafe if circuit breaker is enabled */
+		if (armed.force_failsafe && !_cb_flighttermination) {
+			set |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
+		}
+
+		// XXX this is for future support in the commander
+		// but can be removed if unneeded
+		// if (armed.termination_failsafe) {
+		// 	set |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
+		// } else {
+		// 	clear |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
+		// }
+
+		if (armed.ready_to_arm) {
+			set |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
+
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
+		}
 	}
 
-	if (armed.lockdown && !_lockdown_override) {
-		set |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_LOCKDOWN;
-	}
-
-	/* Do not set failsafe if circuit breaker is enabled */
-	if (armed.force_failsafe && !_cb_flighttermination) {
-		set |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE;
-	}
-
-	// XXX this is for future support in the commander
-	// but can be removed if unneeded
-	// if (armed.termination_failsafe) {
-	// 	set |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
-	// } else {
-	// 	clear |= PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE;
-	// }
-
-	if (armed.ready_to_arm) {
-		set |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
-
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_IO_ARM_OK;
-	}
-
-	if (control_mode.flag_external_manual_override_ok) {
-		set |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
-
-	} else {
-		clear |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
+	if (have_control_mode == OK) {
+		if (control_mode.flag_external_manual_override_ok) {
+			set |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
+		} else {
+			clear |= PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK;
+		}
 	}
 
 	return io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, clear, set);
@@ -1245,30 +1259,43 @@ PX4IO::io_set_rc_config()
 	 *       for compatibility reasons with existing
 	 *       autopilots / GCS'.
 	 */
+
+	/* ROLL */
 	param_get(param_find("RC_MAP_ROLL"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 0;
+	}
 
+	/* PITCH */
 	param_get(param_find("RC_MAP_PITCH"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 1;
+	}
 
+	/* YAW */
 	param_get(param_find("RC_MAP_YAW"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 2;
+	}
 
+	/* THROTTLE */
 	param_get(param_find("RC_MAP_THROTTLE"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 3;
+	}
 
-	param_get(param_find("RC_MAP_MODE_SW"), &ichan);
-
-	if ((ichan >= 0) && (ichan < (int)_max_rc_input))
+	/* FLAPS */
+	param_get(param_find("RC_MAP_FLAPS"), &ichan);
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
 		input_map[ichan - 1] = 4;
+	}
+
+	/* MAIN MODE SWITCH */
+	param_get(param_find("RC_MAP_MODE_SW"), &ichan);
+	if ((ichan > 0) && (ichan <= (int)_max_rc_input)) {
+		/* use out of normal bounds index to indicate special channel */
+		input_map[ichan - 1] = PX4IO_P_RC_CONFIG_ASSIGNMENT_MODESWITCH;
+	}
 
 	/*
 	 * Iterate all possible RC inputs.
@@ -1550,11 +1577,6 @@ PX4IO::io_get_raw_rc_input(rc_input_values &input_rc)
 		channel_count = RC_INPUT_MAX_CHANNELS;
 	}
 
-	/* count channel count changes to identify signal integrity issues */
-	if (channel_count != _rc_chan_count) {
-		perf_count(_perf_chan_count);
-	}
-
 	_rc_chan_count = channel_count;
 
 	input_rc.timestamp_publication = hrt_absolute_time();
@@ -1644,10 +1666,6 @@ PX4IO::io_publish_raw_rc()
 int
 PX4IO::io_publish_pwm_outputs()
 {
-	/* if no FMU comms(!) just don't publish */
-	if (!(_status & PX4IO_P_STATUS_FLAGS_FMU_OK))
-		return OK;
-
 	/* data we are going to fetch */
 	actuator_outputs_s outputs;
 	outputs.timestamp = hrt_absolute_time();
@@ -1667,17 +1685,12 @@ PX4IO::io_publish_pwm_outputs()
 
 	/* lazily advertise on first publication */
 	if (_to_outputs == 0) {
-		_to_outputs = orb_advertise((_primary_pwm_device ?
-					     ORB_ID_VEHICLE_CONTROLS :
-					     ORB_ID(actuator_outputs_1)),
-					    &outputs);
+		int instance;
+		_to_outputs = orb_advertise_multi(ORB_ID(actuator_outputs),
+					    &outputs, &instance, ORB_PRIO_MAX);
 
 	} else {
-		orb_publish((_primary_pwm_device ?
-			     ORB_ID_VEHICLE_CONTROLS :
-			     ORB_ID(actuator_outputs_1)),
-			    _to_outputs,
-			    &outputs);
+		orb_publish(ORB_ID(actuator_outputs), _to_outputs, &outputs);
 	}
 
 	return OK;
@@ -1761,12 +1774,12 @@ PX4IO::print_debug()
 #ifdef CONFIG_ARCH_BOARD_PX4FMU_V2
 	int io_fd = -1;
 
-	if (io_fd < 0) {
+	if (io_fd <= 0) {
 		io_fd = ::open("/dev/ttyS0", O_RDONLY | O_NONBLOCK | O_NOCTTY);
 	}
 
 	/* read IO's output */
-	if (io_fd > 0) {
+	if (io_fd >= 0) {
 		pollfd fds[1];
 		fds[0].fd = io_fd;
 		fds[0].events = POLLIN;
@@ -2048,7 +2061,7 @@ PX4IO::print_status(bool extended_status)
 		((features & PX4IO_P_SETUP_FEATURES_ADC_RSSI) ? " RSSI_ADC" : "")
 		);
 	uint16_t arming = io_reg_get(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING);
-	printf("arming 0x%04x%s%s%s%s%s%s%s%s\n",
+	printf("arming 0x%04x%s%s%s%s%s%s%s%s%s%s\n",
 	       arming,
 	       ((arming & PX4IO_P_SETUP_ARMING_FMU_ARMED)		? " FMU_ARMED" : " FMU_DISARMED"),
 	       ((arming & PX4IO_P_SETUP_ARMING_IO_ARM_OK)		? " IO_ARM_OK" : " IO_ARM_DENIED"),
@@ -2058,7 +2071,8 @@ PX4IO::print_status(bool extended_status)
 	       ((arming & PX4IO_P_SETUP_ARMING_ALWAYS_PWM_ENABLE)	? " ALWAYS_PWM_ENABLE" : ""),
 	       ((arming & PX4IO_P_SETUP_ARMING_LOCKDOWN)		? " LOCKDOWN" : ""),
 	       ((arming & PX4IO_P_SETUP_ARMING_FORCE_FAILSAFE)		? " FORCE_FAILSAFE" : ""),
-	       ((arming & PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE) ? " TERM_FAILSAFE" : "")
+	       ((arming & PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE) ? " TERM_FAILSAFE" : ""),
+	       ((arming & PX4IO_P_SETUP_ARMING_OVERRIDE_IMMEDIATE) ? " OVERRIDE_IMMEDIATE" : "")
 	       );
 #ifdef CONFIG_ARCH_BOARD_PX4FMU_V1
 	printf("rates 0x%04x default %u alt %u relays 0x%04x\n",
@@ -2183,7 +2197,7 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 		struct pwm_output_values* pwm = (struct pwm_output_values*)arg;
 		if (pwm->channel_count > _max_actuators)
 			/* fail with error */
-			return E2BIG;
+			return -E2BIG;
 
 		/* copy values to registers in IO */
 		ret = io_reg_set(PX4IO_PAGE_FAILSAFE_PWM, 0, pwm->values, pwm->channel_count);
@@ -2202,7 +2216,7 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 		struct pwm_output_values* pwm = (struct pwm_output_values*)arg;
 		if (pwm->channel_count > _max_actuators)
 			/* fail with error */
-			return E2BIG;
+			return -E2BIG;
 
 		/* copy values to registers in IO */
 		ret = io_reg_set(PX4IO_PAGE_DISARMED_PWM, 0, pwm->values, pwm->channel_count);
@@ -2221,7 +2235,7 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 		struct pwm_output_values* pwm = (struct pwm_output_values*)arg;
 		if (pwm->channel_count > _max_actuators)
 			/* fail with error */
-			return E2BIG;
+			return -E2BIG;
 
 		/* copy values to registers in IO */
 		ret = io_reg_set(PX4IO_PAGE_CONTROL_MIN_PWM, 0, pwm->values, pwm->channel_count);
@@ -2240,7 +2254,7 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 		struct pwm_output_values* pwm = (struct pwm_output_values*)arg;
 		if (pwm->channel_count > _max_actuators)
 			/* fail with error */
-			return E2BIG;
+			return -E2BIG;
 
 		/* copy values to registers in IO */
 		ret = io_reg_set(PX4IO_PAGE_CONTROL_MAX_PWM, 0, pwm->values, pwm->channel_count);
@@ -2265,10 +2279,16 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 
 	case PWM_SERVO_GET_DISABLE_LOCKDOWN:
 		*(unsigned *)arg = _lockdown_override;
+		break;
 
 	case PWM_SERVO_SET_FORCE_SAFETY_OFF:
 		/* force safety swith off */
 		ret = io_reg_set(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_FORCE_SAFETY_OFF, PX4IO_FORCE_SAFETY_MAGIC);
+		break;
+
+	case PWM_SERVO_SET_FORCE_SAFETY_ON:
+		/* force safety switch on */
+		ret = io_reg_set(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_FORCE_SAFETY_ON, PX4IO_FORCE_SAFETY_MAGIC);
 		break;
 
 	case PWM_SERVO_SET_FORCE_FAILSAFE:
@@ -2290,6 +2310,19 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 		} else {
 			/* set termination failsafe flag */
 			ret = io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, 0, PX4IO_P_SETUP_ARMING_TERMINATION_FAILSAFE);
+		}
+		break;
+
+	case PWM_SERVO_SET_OVERRIDE_IMMEDIATE:
+		/* control whether override on FMU failure is
+                   immediate or waits for override threshold on mode
+                   switch */
+		if (arg == 0) {
+			/* clear override immediate flag */
+			ret = io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, PX4IO_P_SETUP_ARMING_OVERRIDE_IMMEDIATE, 0);
+		} else {
+			/* set override immediate flag */
+			ret = io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, 0, PX4IO_P_SETUP_ARMING_OVERRIDE_IMMEDIATE);
 		}
 		break;
 
@@ -2554,6 +2587,42 @@ PX4IO::ioctl(file * filep, int cmd, unsigned long arg)
 
 		break;
 
+	case PWM_SERVO_SET_RC_CONFIG: {
+		/* enable setting of RC configuration without relying
+		   on param_get()
+		*/
+		struct pwm_output_rc_config* config = (struct pwm_output_rc_config*)arg;
+		if (config->channel >= RC_INPUT_MAX_CHANNELS) {
+			/* fail with error */
+			return -E2BIG;
+		}
+
+		/* copy values to registers in IO */
+		uint16_t regs[PX4IO_P_RC_CONFIG_STRIDE];
+		uint16_t offset = config->channel * PX4IO_P_RC_CONFIG_STRIDE;
+		regs[PX4IO_P_RC_CONFIG_MIN]        = config->rc_min;
+		regs[PX4IO_P_RC_CONFIG_CENTER]     = config->rc_trim;
+		regs[PX4IO_P_RC_CONFIG_MAX]        = config->rc_max;
+		regs[PX4IO_P_RC_CONFIG_DEADZONE]   = config->rc_dz;
+		regs[PX4IO_P_RC_CONFIG_ASSIGNMENT] = config->rc_assignment;
+		regs[PX4IO_P_RC_CONFIG_OPTIONS]    = PX4IO_P_RC_CONFIG_OPTIONS_ENABLED;
+		if (config->rc_reverse) {
+			regs[PX4IO_P_RC_CONFIG_OPTIONS] |= PX4IO_P_RC_CONFIG_OPTIONS_REVERSE;
+		}
+		ret = io_reg_set(PX4IO_PAGE_RC_CONFIG, offset, regs, PX4IO_P_RC_CONFIG_STRIDE);
+		break;
+	}
+
+	case PWM_SERVO_SET_OVERRIDE_OK:
+		/* set the 'OVERRIDE OK' bit */
+		ret = io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, 0, PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK);
+		break;
+
+	case PWM_SERVO_CLEAR_OVERRIDE_OK:
+		/* clear the 'OVERRIDE OK' bit */
+		ret = io_reg_modify(PX4IO_PAGE_SETUP, PX4IO_P_SETUP_ARMING, PX4IO_P_SETUP_ARMING_MANUAL_OVERRIDE_OK, 0);
+		break;
+
 	default:
 		/* see if the parent class can make any use of it */
 		ret = CDev::ioctl(filep, cmd, arg);
@@ -2786,10 +2855,10 @@ checkcrc(int argc, char *argv[])
 	}
 
 	if (ret != OK) {
-		printf("check CRC failed - %d\n", ret);
+		printf("[PX4IO::checkcrc] check CRC failed - %d\n", ret);
 		exit(1);
 	}
-	printf("CRCs match\n");
+	printf("[PX4IO::checkcrc] CRCs match\n");
 	exit(0);
 }
 
@@ -2936,11 +3005,14 @@ monitor(void)
 
 		fds[0].fd = 0;
 		fds[0].events = POLLIN;
-		poll(fds, 1, 2000);
+		if (poll(fds, 1, 2000) < 0) {
+			errx(1, "poll fail");
+		}
 
 		if (fds[0].revents == POLLIN) {
-			int c;
-			read(0, &c, 1);
+			/* control logic is to cancel with any key */
+			char c;
+			(void)read(0, &c, 1);
 
 			if (cancels-- == 0) {
 				printf("\033[2J\033[H"); /* move cursor home and clear screen */
@@ -3002,12 +3074,13 @@ lockdown(int argc, char *argv[])
 
 					if (ret > 0) {
 
-						read(0, &c, 1);
+						if (read(0, &c, 1) > 0) {
 
-						if (c != 'y') {
-							exit(0);
-						} else if (c == 'y') {
-							break;
+							if (c != 'y') {
+								exit(0);
+							} else if (c == 'y') {
+								break;
+							}
 						}
 					}
 
@@ -3170,7 +3243,13 @@ px4io_main(int argc, char *argv[])
 	if (!strcmp(argv[1], "limit")) {
 
 		if ((argc > 2)) {
-			g_dev->set_update_rate(atoi(argv[2]));
+			int limitrate = atoi(argv[2]);
+
+			if (limitrate > 0) {
+				g_dev->set_update_rate(limitrate);
+			} else {
+				errx(1, "invalid rate: %d", limitrate);
+			}
 
 		} else {
 			errx(1, "missing argument (50 - 500 Hz)");
@@ -3192,7 +3271,23 @@ px4io_main(int argc, char *argv[])
 		exit(0);
 	}
 
+	if (!strcmp(argv[1], "safety_off")) {
+		int ret = g_dev->ioctl(NULL, PWM_SERVO_SET_FORCE_SAFETY_OFF, 0);
+		if (ret != OK) {
+			printf("failed to disable safety\n");
+			exit(1);
+		}
+		exit(0);
+	}
 
+	if (!strcmp(argv[1], "safety_on")) {
+		int ret = g_dev->ioctl(NULL, PWM_SERVO_SET_FORCE_SAFETY_ON, 0);
+		if (ret != OK) {
+			printf("failed to enable safety\n");
+			exit(1);
+		}
+		exit(0);
+	}
 
 	if (!strcmp(argv[1], "recovery")) {
 
@@ -3321,6 +3416,6 @@ px4io_main(int argc, char *argv[])
 
 out:
 	errx(1, "need a command, try 'start', 'stop', 'status', 'test', 'monitor', 'debug <level>',\n"
-	        "'recovery', 'limit <rate>', 'current', 'bind', 'checkcrc',\n"
+	        "'recovery', 'limit <rate>', 'current', 'bind', 'checkcrc', 'safety_on', 'safety_off',\n"
 	        "'forceupdate', 'update', 'sbus1_out', 'sbus2_out', 'rssi_analog' or 'rssi_pwm'");
 }
