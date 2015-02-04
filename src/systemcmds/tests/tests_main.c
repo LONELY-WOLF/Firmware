@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- *   Copyright (c) 2012, 2013 PX4 Development Team. All rights reserved.
+ *   Copyright (c) 2012-2015 PX4 Development Team. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -109,8 +109,9 @@ const struct {
 	{"rc",			test_rc,	OPT_NOJIGTEST | OPT_NOALLTEST},
 	{"conv",		test_conv,	OPT_NOJIGTEST | OPT_NOALLTEST},
 	{"mount",		test_mount,	OPT_NOJIGTEST | OPT_NOALLTEST},
-	{"mtd",			test_mtd,	0},
+#ifndef TESTS_MATHLIB_DISABLE
 	{"mathlib",		test_mathlib,	0},
+#endif
 	{"help",		test_help,	OPT_NOALLTEST | OPT_NOHELP | OPT_NOJIGTEST},
 	{NULL,			NULL, 		0}
 };
