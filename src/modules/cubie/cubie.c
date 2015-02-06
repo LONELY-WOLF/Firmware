@@ -114,7 +114,7 @@ int cubie_main(int argc, char *argv[])
 					 SCHED_PRIORITY_DEFAULT,
 					 4096,
 					 cubie_thread_main,
-					 (argv) ? (const char **)&argv[2] : (const char **)NULL);
+					 (char * const *)argv);
 		
 		int mavlink_fd;
 		mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
@@ -160,6 +160,11 @@ int cubie_thread_main(int argc, char *argv[])
 	orb_advert_t pub_dbgz = orb_advertise(ORB_ID(debug_key_value), &dbgz);*/
 	
 	//Init
+	
+	/* work around some stupidity in task_create's argv handling */
+	argc -= 2;
+	argv += 2;
+	
 	int uart2 = open(argv[1], O_RDONLY | O_NOCTTY);
 	if(uart2 >= 0)
 	{

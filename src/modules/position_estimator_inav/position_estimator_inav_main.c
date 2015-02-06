@@ -893,7 +893,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 							cubie_p[i] = 0.0f;
 							for (int j = 0; j < 3; j++)
 							{
-								cubie_p[i] += att.R[i][j] * cubie_pos_arr[j];
+								cubie_p[i] += PX4_R(att.R, i, j) * cubie_pos_arr[j];
 							}
 						}
 					}
