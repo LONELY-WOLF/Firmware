@@ -122,8 +122,8 @@ then
 	#
 	if param compare SYS_AUTOCONFIG 1
 	then
-		# Wipe out params
-		param reset_nostart
+		# Wipe out params except RC*
+		param reset_nostart RC*
 		set AUTOCNF yes
 	else
 		set AUTOCNF no
@@ -442,7 +442,6 @@ then
 
 	if [ $GPS == yes ]
 	then
-		echo "[i] Start GPS"
 		if [ $GPS_FAKE == yes ]
 		then
 			echo "[i] Faking GPS"
@@ -512,6 +511,10 @@ then
 				set MAV_TYPE 2
 			fi
 			if [ $MIXER == quad_w -o $MIXER == sk450_deadcat ]
+			then
+				set MAV_TYPE 2
+			fi
+			if [ $MIXER == tri_y_yaw- -o $MIXER == tri_y_yaw+ ]
 			then
 				set MAV_TYPE 2
 			fi
