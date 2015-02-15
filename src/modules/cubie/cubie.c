@@ -112,7 +112,7 @@ int cubie_main(int argc, char *argv[])
 		daemon_task = task_spawn_cmd("cubie",
 					 SCHED_DEFAULT,
 					 SCHED_PRIORITY_DEFAULT,
-					 4096,
+					 2048,
 					 cubie_thread_main,
 					 (char * const *)argv);
 		
@@ -185,7 +185,7 @@ int cubie_thread_main(int argc, char *argv[])
 	
 	struct pollfd fds = { .fd = uart2, .events = POLLIN };
 	
-	uint8_t buffer[32];
+	uint8_t buffer[8];
 	uint8_t buf_size = 0;
 	int16_t x = 0, y = 0, z = 0;
 	uint16_t ux = 0, uy = 0, uz = 0;
