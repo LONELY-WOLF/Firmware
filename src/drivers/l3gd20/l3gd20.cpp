@@ -445,7 +445,7 @@ L3GD20::~L3GD20()
 		delete _reports;
 
 	if (_class_instance != -1)
-		unregister_class_devname(GYRO_DEVICE_PATH, _class_instance);
+		unregister_class_devname(GYRO_BASE_DEVICE_PATH, _class_instance);
 
 	/* delete the perf counter */
 	perf_free(_sample_perf);
@@ -469,7 +469,7 @@ L3GD20::init()
 	if (_reports == nullptr)
 		goto out;
 
-	_class_instance = register_class_devname(GYRO_DEVICE_PATH);
+	_class_instance = register_class_devname(GYRO_BASE_DEVICE_PATH);
 
 	reset();
 
@@ -667,7 +667,7 @@ L3GD20::ioctl(struct file *filp, int cmd, unsigned long arg)
 	}
 
 	case GYROIOCGLOWPASS:
-		return _gyro_filter_x.get_cutoff_freq();
+		return static_cast<int>(_gyro_filter_x.get_cutoff_freq());
 
 	case GYROIOCSSCALE:
 		/* copy scale in */
@@ -972,7 +972,7 @@ L3GD20::measure()
 	transfer((uint8_t *)&raw_report, (uint8_t *)&raw_report, sizeof(raw_report));
 
 #if L3GD20_USE_DRDY
-        if ((raw_report.status & 0xF) != 0xF) {
+        if (_bus == PX4_SPI_BUS_SENSORS && (raw_report.status & 0xF) != 0xF) {
             /*
               we waited for DRDY, but did not see DRDY on all axes
               when we captured. That means a transfer error of some sort
@@ -1234,11 +1234,12 @@ test()
 	warnx("gyro range: %8.4f rad/s (%d deg/s)", (double)g_report.range_rad_s,
 	      (int)((g_report.range_rad_s / M_PI_F) * 180.0f + 0.5f));
 
+	if (ioctl(fd_gyro, SENSORIOCSPOLLRATE, SENSOR_POLLRATE_DEFAULT) < 0)
+		err(1, "reset to default polling");
+
         close(fd_gyro);
 
 	/* XXX add poll-rate tests here too */
-
-	reset();
 	errx(0, "PASS");
 }
 
