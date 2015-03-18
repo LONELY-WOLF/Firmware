@@ -3,7 +3,7 @@
 # USB MAVLink start
 #
 
-#mavlink start -r 20000 -d /dev/ttyACM0 -x
+mavlink start -r 20000 -d /dev/ttyACM0 -x
 # Enable a number of interesting streams we want via USB
 mavlink stream -d /dev/ttyACM0 -s PARAM_VALUE -r 200
 mavlink stream -d /dev/ttyACM0 -s MISSION_ITEM -r 50
@@ -21,4 +21,4 @@ mavlink stream -d /dev/ttyACM0 -s HIGHRES_IMU -r 20
 mavlink stream -d /dev/ttyACM0 -s GPS_RAW_INT -r 20
 
 # Exit shell to make it available to MAVLink
-#exit
+exit
