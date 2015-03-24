@@ -86,6 +86,9 @@ PARAM_DEFINE_FLOAT(REF_ALT, 0.0f);
 #define PUB_INTERVAL 10000	// limit publish rate to 100 Hz
 #define EST_BUF_SIZE 250000 / PUB_INTERVAL		// buffer size is 0.5s
 
+//If defined ext_lpos will work even without GPS signal. For TESTING.
+#define EXT_LPOS_WO_GPS
+
 static bool thread_should_exit = false; /**< Deamon exit flag */
 static bool thread_running = false; /**< Deamon status flag */
 static int position_estimator_inav_task; /**< Handle of deamon task / thread */
@@ -859,8 +862,20 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			if (updated)
 			{
 				orb_copy(ORB_ID(cubie_position), cubie_pos_sub, &cubie_pos);
+#ifndef EXT_LPOS_WO_GPS
 				if(ref_inited && gps_valid)
 				{
+#else
+				if(!ref_inited)
+				{
+					x_est[1] = 0.0f;
+					y_est[1] = 0.0f;
+					z_est[1] = 0.0f;
+					map_projection_init(&ref, paramf_lat, paramf_lon);
+					mavlink_log_info(mavlink_fd, "[inav] init ref: lat=%.7f, lon=%.7f", (double)paramf_lat, (double)paramf_lon);
+					ref_inited = true;
+				}
+#endif
 					if(!cubie_ref_inited)
 					{
 						/* initialize projection */
@@ -897,6 +912,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 							}
 						}
 					}
+#ifndef EXT_LPOS_WO_GPS
 					float tmp_x, tmp_y;
 					tmp_x = (gps_proj[0] - cubie_pos_arr[0]) * (gps_proj[0] - cubie_pos_arr[0]);
 					tmp_y = (gps_proj[1] - cubie_pos_arr[1]) * (gps_proj[1] - cubie_pos_arr[1]);
@@ -904,6 +920,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 					bool near_mark = (tmp_x + tmp_y) < 100.0f; // < 3 meters
 					if(near_mark)
 					{
+#endif
 						/*if (!ref_inited) {
 								if (ref_init_start == 0) {
 									ref_init_start = t;
@@ -939,6 +956,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 						corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
 						mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", (double)cubie_pos_arr[0], (double)cubie_pos_arr[1], (double)cubie_pos_arr[2]);
 						cubie_valid = true;
+#ifndef EXT_LPOS_WO_GPS
 					}
 					else
 					{
@@ -949,6 +967,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				{
 					mavlink_log_info(mavlink_fd, "[inav] cubie: No GPS");
 				}
+#endif
 			}
 		}
 
@@ -1222,11 +1241,6 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			{
 				inertial_filter_correct(corr_cubie[0], dt, x_est, 0, w_cubie);
 				inertial_filter_correct(corr_cubie[1], dt, y_est, 0, w_cubie);
-				//mavlink_log_info(mavlink_fd, "%.6f %.3f %.3f %.3f %.3f %.3f\r\n", dt, x_est[0], x_est[1], x_est[2], corr_cubie[0], corr_acc[0]);
-				//fprintf(dbglog, "%f %f %f %f %f %f\r\n", dt, x_est[0], x_est[1], x_est[2], corr_cubie[0], corr_acc[0]);
-				//fflush(dbglog);
-				//inertial_filter_correct(corr_cubie[2], dt, z_est, 0, 1.0f);
-				//mavlink_log_info(mavlink_fd, "[inav] cubie corr_x: %.2f corr_y: %.2f corr_z: %.2f", corr_cubie[0], corr_cubie[1], corr_cubie[2]);
 			}
 
 			if (use_vision_xy) {
