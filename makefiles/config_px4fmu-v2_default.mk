@@ -151,7 +151,7 @@ MODULES		+= examples/flow_position_estimator
 # Hardware test
 #MODULES			+= examples/hwtest
 
-MODULES		+= modules/cubie
+MODULES		+= modules/ext_lpos
 
 # Generate parameter XML file
 GEN_PARAM_XML = 1

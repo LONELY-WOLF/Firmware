@@ -1,12 +1,12 @@
-#ifndef TOPIC_CUBIE_POS_H
-#define TOPIC_CUBIE_POS_H
+#ifndef TOPIC_EXT_LPOS_H
+#define TOPIC_EXT_LPOS_H
 
 /* define the data structure that will be published where subscribers can see it */
-struct cubie_pos_s {
+struct ext_lpos_s {
 	float x, y, z;
 };
 
 /* declare the topic */
-ORB_DECLARE(cubie_position);
+ORB_DECLARE(ext_lpos_position);
 
 #endif

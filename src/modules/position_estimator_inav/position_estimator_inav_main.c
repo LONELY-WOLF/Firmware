@@ -66,7 +66,7 @@
 #include <uORB/topics/vision_position_estimate.h>
 #include <uORB/topics/home_position.h>
 #include <uORB/topics/optical_flow.h>
-#include <uORB/topics/cubie_pos.h>
+#include <uORB/topics/ext_lpos.h>
 #include <mavlink/mavlink_log.h>
 #include <poll.h>
 #include <systemlib/err.h>
@@ -87,7 +87,7 @@ PARAM_DEFINE_FLOAT(REF_ALT, 0.0f);
 #define EST_BUF_SIZE 250000 / PUB_INTERVAL		// buffer size is 0.5s
 
 //If defined ext_lpos will work even without GPS signal. For TESTING.
-#define EXT_LPOS_WO_GPS
+//#define EXT_LPOS_WO_GPS
 
 static bool thread_should_exit = false; /**< Deamon exit flag */
 static bool thread_running = false; /**< Deamon status flag */
@@ -99,12 +99,12 @@ static const hrt_abstime gps_topic_timeout = 500000;		// GPS topic timeout = 0.5
 static const hrt_abstime flow_topic_timeout = 1000000;	// optical flow topic timeout = 1s
 static const hrt_abstime sonar_timeout = 150000;	// sonar timeout = 150ms
 static const hrt_abstime sonar_valid_timeout = 1000000;	// estimate sonar distance during this time after sonar loss
-static const hrt_abstime cubie_timeout = 500000; // 500 ms
+static const hrt_abstime ext_lpos_timeout = 500000; // 500 ms
 static const hrt_abstime xy_src_timeout = 2000000;	// estimate position during this time after position sources loss
 static const uint32_t updates_counter_len = 1000000;
 static const float max_flow = 1.0f;	// max flow value that can be used, rad/s
 
-float w_gps_cubie = 1.0f;
+float w_gps_ext_lpos = 1.0f;
 
 __EXPORT int position_estimator_inav_main(int argc, char *argv[]);
 
@@ -273,10 +273,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	memset(&ref, 0, sizeof(ref));
 	hrt_abstime home_timestamp = 0;
 	
-	bool cubie_ref_inited = false;
-	struct map_projection_reference_s cubie_ref;
-	memset(&cubie_ref, 0, sizeof(cubie_ref));
-	double cubie_lat = 0.0, cubie_lon = 0.0;
+	bool ext_lpos_ref_inited = false;
+	struct map_projection_reference_s ext_lpos_ref;
+	memset(&ext_lpos_ref, 0, sizeof(ext_lpos_ref));
+	double ext_lpos_lat = 0.0, ext_lpos_lon = 0.0;
 	param_t param_ref_lat = param_find("REF_LAT");
 	param_t param_ref_lon = param_find("REF_LON");
 	param_t param_ref_alt = param_find("REF_ALT");
@@ -297,7 +297,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	hrt_abstime pub_last = hrt_absolute_time();
 
 	hrt_abstime t_prev = 0;
-	hrt_abstime cubie_appeared = 0;
+	hrt_abstime ext_lpos_appeared = 0;
 
 	/* store error when sensor updates, but correct on each time step to avoid jumps in estimated value */
 	float acc[] = { 0.0f, 0.0f, 0.0f };	// N E D
@@ -323,9 +323,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	float corr_flow[] = { 0.0f, 0.0f };	// N E
 	float w_flow = 0.0f;
 	
-	float corr_cubie[] = { 0.0f, 0.0f, 0.0f };
-	float cubie_p[] = { 0.0f, 0.0f, 0.0f };
-	float w_cubie = 1.0f;
+	float corr_ext_lpos[] = { 0.0f, 0.0f, 0.0f };
+	float ext_lpos_p[] = { 0.0f, 0.0f, 0.0f };
+	float w_ext_lpos = 1.0f;
 
 	float sonar_prev = 0.0f;
 	//hrt_abstime flow_prev = 0;			// time of last flow measurement
@@ -333,15 +333,15 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	hrt_abstime sonar_valid_time = 0;	// time of last sonar measurement used for correction (filtered)
 	
 	//hrt_abstime xy_src_time = 0;		// time of last available position data
-	hrt_abstime cubie_time = 0;
+	hrt_abstime ext_lpos_time = 0;
 
 	bool gps_valid = false;			// GPS is valid
 	bool sonar_valid = false;		// sonar is valid
 	bool flow_valid = false;		// flow is valid
 	bool flow_accurate = false;		// flow should be accurate (this flag not updated if flow_valid == false)
 
-	bool cubie_valid = false;
-	bool use_cubie = false;
+	bool ext_lpos_valid = false;
+	bool use_ext_lpos = false;
 	//char *s_dbg = malloc(256);
 	//FILE *dbglog = fopen("/fs/microsd/dbglog.txt", "w");
 	
@@ -368,8 +368,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	memset(&vision, 0, sizeof(vision));
 	struct vehicle_global_position_s global_pos;
 	memset(&global_pos, 0, sizeof(global_pos));
-	struct cubie_pos_s cubie_pos;
-	memset(&cubie_pos, 0, sizeof(cubie_pos));
+	struct ext_lpos_s ext_lpos;
+	memset(&ext_lpos, 0, sizeof(ext_lpos));
 
 	/* subscribe */
 	int parameter_update_sub = orb_subscribe(ORB_ID(parameter_update));
@@ -381,7 +381,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 	int vehicle_gps_position_sub = orb_subscribe(ORB_ID(vehicle_gps_position));
 	int vision_position_estimate_sub = orb_subscribe(ORB_ID(vision_position_estimate));
 	int home_position_sub = orb_subscribe(ORB_ID(home_position));
-	int cubie_pos_sub = orb_subscribe(ORB_ID(cubie_position));
+	int ext_lpos_sub = orb_subscribe(ORB_ID(ext_lpos_position));
 
 	/* advertise */
 	orb_advert_t vehicle_local_position_pub = orb_advertise(ORB_ID(vehicle_local_position), &local_pos);
@@ -475,7 +475,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				param_get(param_ref_lat, &paramf_lat);
 				param_get(param_ref_lon, &paramf_lon);
 				param_get(param_ref_alt, &paramf_alt);
-				cubie_ref_inited = false;
+				ext_lpos_ref_inited = false;
 			}
 
 			/* actuator */
@@ -856,12 +856,12 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 				gps_updates++;
 			}
 			
-			/* vehicle cubie position */
-			orb_check(cubie_pos_sub, &updated);
+			/* vehicle ext_lpos position */
+			orb_check(ext_lpos_sub, &updated);
 
 			if (updated)
 			{
-				orb_copy(ORB_ID(cubie_position), cubie_pos_sub, &cubie_pos);
+				orb_copy(ORB_ID(ext_lpos_position), ext_lpos_sub, &ext_lpos);
 #ifndef EXT_LPOS_WO_GPS
 				if(ref_inited && gps_valid)
 				{
@@ -876,10 +876,10 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 					ref_inited = true;
 				}
 #endif
-					if(!cubie_ref_inited)
+					if(!ext_lpos_ref_inited)
 					{
 						/* initialize projection */
-						map_projection_init(&cubie_ref, paramf_lat, paramf_lon);
+						map_projection_init(&ext_lpos_ref, paramf_lat, paramf_lon);
 						/*if(!ref_inited)
 						{
 							map_projection_init(&ref, paramf_lat, paramf_lon);
@@ -891,31 +891,31 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 							z_est[1] = 0.0f;
 							z_est[2] = 0.0f;
 						}*/
-						mavlink_log_info(mavlink_fd, "[inav] init cubie_ref: lat=%.7f, lon=%.7f", (double)paramf_lat, (double)paramf_lon);
-						cubie_ref_inited = true;
+						mavlink_log_info(mavlink_fd, "[inav] init ext_lpos_ref: lat=%.7f, lon=%.7f", (double)paramf_lat, (double)paramf_lon);
+						ext_lpos_ref_inited = true;
 					}
 				
 					float gps_proj[2];
 					double lat = gps.lat * 1e-7;
 					double lon = gps.lon * 1e-7;
-					map_projection_project(&cubie_ref, lat, lon, &(gps_proj[0]), &(gps_proj[1]));
-					float cubie_pos_arr[3] = { -cubie_pos.z, -cubie_pos.x, cubie_pos.y };
+					map_projection_project(&ext_lpos_ref, lat, lon, &(gps_proj[0]), &(gps_proj[1]));
+					float ext_lpos_arr[3] = { -ext_lpos.z, -ext_lpos.x, ext_lpos.y };
 					/* transform vector from body frame to NED frame */
 					if (att.R_valid)
 					{
 						for (int i = 0; i < 3; i++)
 						{
-							cubie_p[i] = 0.0f;
+							ext_lpos_p[i] = 0.0f;
 							for (int j = 0; j < 3; j++)
 							{
-								cubie_p[i] += PX4_R(att.R, i, j) * cubie_pos_arr[j];
+								ext_lpos_p[i] += PX4_R(att.R, i, j) * ext_lpos_arr[j];
 							}
 						}
 					}
 #ifndef EXT_LPOS_WO_GPS
 					float tmp_x, tmp_y;
-					tmp_x = (gps_proj[0] - cubie_pos_arr[0]) * (gps_proj[0] - cubie_pos_arr[0]);
-					tmp_y = (gps_proj[1] - cubie_pos_arr[1]) * (gps_proj[1] - cubie_pos_arr[1]);
+					tmp_x = (gps_proj[0] - ext_lpos_arr[0]) * (gps_proj[0] - ext_lpos_arr[0]);
+					tmp_y = (gps_proj[1] - ext_lpos_arr[1]) * (gps_proj[1] - ext_lpos_arr[1]);
 					//mavlink_log_info(mavlink_fd, "[inav] tmp: x=%.7f, y=%.7f", tmp_x, tmp_y);
 					bool near_mark = (tmp_x + tmp_y) < 100.0f; // < 3 meters
 					if(near_mark)
@@ -941,31 +941,28 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 									mavlink_log_info(mavlink_fd, "[inav] init ref: lat=%.7f, lon=%.7f, alt=%.2f", lat, lon, alt);
 								}
 							}*/
-						map_projection_reproject(&cubie_ref, cubie_p[0], cubie_p[1], &cubie_lat, &cubie_lon);
-						map_projection_project(&ref, cubie_lat, cubie_lon, &corr_cubie[0], &corr_cubie[1]);
-						corr_cubie[0] -= x_est[0];
-						corr_cubie[1] -= y_est[0];
-						corr_cubie[2] = (cubie_p[2] + paramf_alt) - z_est[0];
-						cubie_time = t;
-						if(!use_cubie)
+						map_projection_reproject(&ext_lpos_ref, ext_lpos_p[0], ext_lpos_p[1], &ext_lpos_lat, &ext_lpos_lon);
+						map_projection_project(&ref, ext_lpos_lat, ext_lpos_lon, &corr_ext_lpos[0], &corr_ext_lpos[1]);
+						corr_ext_lpos[0] -= x_est[0];
+						corr_ext_lpos[1] -= y_est[0];
+						corr_ext_lpos[2] = (ext_lpos_p[2] + paramf_alt) - z_est[0];
+						ext_lpos_time = t;
+						if(!use_ext_lpos)
 						{
-							cubie_appeared = t;
+							ext_lpos_appeared = t;
 						}
-						/*corr_cubie[0] = cubie_pos_arr[0] - x_est[0];
-						corr_cubie[1] = cubie_pos_arr[1] - y_est[0];
-						corr_cubie[2] = cubie_pos_arr[2] - z_est[0];*/
-						mavlink_log_info(mavlink_fd, "[inav] cubie x: %.2f y: %.2f z: %.2f", (double)cubie_pos_arr[0], (double)cubie_pos_arr[1], (double)cubie_pos_arr[2]);
-						cubie_valid = true;
+						mavlink_log_info(mavlink_fd, "[inav] ext_lpos x: %.2f y: %.2f z: %.2f", (double)ext_lpos_arr[0], (double)ext_lpos_arr[1], (double)ext_lpos_arr[2]);
+						ext_lpos_valid = true;
 #ifndef EXT_LPOS_WO_GPS
 					}
 					else
 					{
-						mavlink_log_info(mavlink_fd, "[inav] cubie far from mark");
+						mavlink_log_info(mavlink_fd, "[inav] ext_lpos far from mark");
 					}
 				}
 				else
 				{
-					mavlink_log_info(mavlink_fd, "[inav] cubie: No GPS");
+					mavlink_log_info(mavlink_fd, "[inav] ext_lpos: No GPS");
 				}
 #endif
 			}
@@ -1019,7 +1016,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		bool use_vision_z = vision_valid && params.w_z_vision_p > MIN_VALID_W;
 		/* use flow if it's valid and (accurate or no GPS available) */
 		bool use_flow = flow_valid && (flow_accurate || !use_gps_xy);
-		use_cubie = cubie_valid && (t < cubie_time + cubie_timeout);
+		use_ext_lpos = ext_lpos_valid && (t < ext_lpos_time + ext_lpos_timeout);
 
 
 		/* try to estimate position during some time after position sources lost */
@@ -1027,8 +1024,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			xy_src_time = t;
 		}*/
 
-		//bool can_estimate_xy = (eph < max_eph_epv * 1.5) || use_cubie;
-		bool can_estimate_xy = (eph < max_eph_epv) || use_gps_xy || use_flow || use_vision_xy || use_cubie;
+		//bool can_estimate_xy = (eph < max_eph_epv * 1.5) || use_ext_lpos;
+		bool can_estimate_xy = (eph < max_eph_epv) || use_gps_xy || use_flow || use_vision_xy || use_ext_lpos;
 
 		bool dist_bottom_valid = (t < sonar_valid_time + sonar_valid_timeout);
 
@@ -1069,20 +1066,20 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		float accel_bias_corr[3] = { 0.0f, 0.0f, 0.0f };
 
 		if (use_gps_xy) {
-			if(use_cubie)
+			if(use_ext_lpos)
 			{
-				w_gps_cubie = 1.0f - (((float)(t - cubie_appeared)) / 200000.0f); //GPS off in 0.2s
+				w_gps_ext_lpos = 1.0f - (((float)(t - ext_lpos_appeared)) / 200000.0f); //GPS off in 0.2s
 			}
 			else
 			{
-				w_gps_cubie = ((float)(t - (cubie_time + cubie_timeout))) / 500000.0f; //back to GPS in 0.5s
+				w_gps_ext_lpos = ((float)(t - (ext_lpos_time + ext_lpos_timeout))) / 500000.0f; //back to GPS in 0.5s
 			}
-			if (w_gps_cubie < 0.0f) w_gps_cubie = 0.0f;
-			if (w_gps_cubie > 1.0f) w_gps_cubie = 1.0f;
-			accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p * w_gps_cubie * w_gps_cubie;
-			accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v * w_gps_cubie;
-			accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p * w_gps_cubie * w_gps_cubie;
-			accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v * w_gps_cubie;
+			if (w_gps_ext_lpos < 0.0f) w_gps_ext_lpos = 0.0f;
+			if (w_gps_ext_lpos > 1.0f) w_gps_ext_lpos = 1.0f;
+			accel_bias_corr[0] -= corr_gps[0][0] * w_xy_gps_p * w_xy_gps_p * w_gps_ext_lpos * w_gps_ext_lpos;
+			accel_bias_corr[0] -= corr_gps[0][1] * w_xy_gps_v * w_gps_ext_lpos;
+			accel_bias_corr[1] -= corr_gps[1][0] * w_xy_gps_p * w_xy_gps_p * w_gps_ext_lpos * w_gps_ext_lpos;
+			accel_bias_corr[1] -= corr_gps[1][1] * w_xy_gps_v * w_gps_ext_lpos;
 		}
 
 		if (use_gps_z) {
@@ -1144,12 +1141,12 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 
 		accel_bias_corr[2] -= corr_baro * params.w_z_baro * params.w_z_baro;
 		
-		//for cubie
-		if(use_cubie)
+		//for ext_lpos
+		if(use_ext_lpos)
 		{
-			accel_bias_corr[0] -= corr_cubie[0] * w_cubie * w_cubie;
-			accel_bias_corr[1] -= corr_cubie[1] * w_cubie * w_cubie;
-			accel_bias_corr[2] -= corr_cubie[2] * w_cubie * w_cubie;
+			accel_bias_corr[0] -= corr_ext_lpos[0] * w_ext_lpos * w_ext_lpos;
+			accel_bias_corr[1] -= corr_ext_lpos[1] * w_ext_lpos * w_ext_lpos;
+			accel_bias_corr[2] -= corr_ext_lpos[2] * w_ext_lpos * w_ext_lpos;
 		}
 
 		/* transform error vector from NED frame to body frame */
@@ -1177,9 +1174,9 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 		inertial_filter_correct(corr_baro, dt, z_est, 0, params.w_z_baro);
 		/*inertial_filter_correct(corr_gps[2][0], dt, z_est, 0, w_z_gps_p);
 		inertial_filter_correct(corr_acc[2], dt, z_est, 2, params.w_z_acc);*/
-		if (use_cubie)
+		if (use_ext_lpos)
 		{
-			inertial_filter_correct(corr_cubie[2], dt, z_est, 0, w_cubie);
+			inertial_filter_correct(corr_ext_lpos[2], dt, z_est, 0, w_ext_lpos);
 		}
 
 		if (use_gps_z) {
@@ -1227,20 +1224,20 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			if (use_gps_xy) {
 				eph = fminf(eph, gps.eph);
 
-				inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p * w_gps_cubie);
-				inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p * w_gps_cubie);
+				inertial_filter_correct(corr_gps[0][0], dt, x_est, 0, w_xy_gps_p * w_gps_ext_lpos);
+				inertial_filter_correct(corr_gps[1][0], dt, y_est, 0, w_xy_gps_p * w_gps_ext_lpos);
 
 				if (gps.vel_ned_valid && t < gps.timestamp_velocity + gps_topic_timeout) {
-					inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v * w_gps_cubie);
-					inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v * w_gps_cubie);
+					inertial_filter_correct(corr_gps[0][1], dt, x_est, 1, w_xy_gps_v * w_gps_ext_lpos);
+					inertial_filter_correct(corr_gps[1][1], dt, y_est, 1, w_xy_gps_v * w_gps_ext_lpos);
 				}
 			}
 			
-			//cubie
-			if(use_cubie)
+			//ext_lpos
+			if(use_ext_lpos)
 			{
-				inertial_filter_correct(corr_cubie[0], dt, x_est, 0, w_cubie);
-				inertial_filter_correct(corr_cubie[1], dt, y_est, 0, w_cubie);
+				inertial_filter_correct(corr_ext_lpos[0], dt, x_est, 0, w_ext_lpos);
+				inertial_filter_correct(corr_ext_lpos[1], dt, y_est, 0, w_ext_lpos);
 			}
 
 			if (use_vision_xy) {
@@ -1315,8 +1312,8 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 			/* publish local position */
 			local_pos.xy_valid = can_estimate_xy;
 			local_pos.v_xy_valid = can_estimate_xy;
-			local_pos.xy_global = local_pos.xy_valid && (use_gps_xy || use_cubie);
-			local_pos.z_global = local_pos.z_valid && (use_gps_z || use_cubie);
+			local_pos.xy_global = local_pos.xy_valid && (use_gps_xy || use_ext_lpos);
+			local_pos.z_global = local_pos.z_valid && (use_gps_z || use_ext_lpos);
 			local_pos.x = x_est[0];
 			local_pos.vx = x_est[1];
 			local_pos.y = y_est[0];
@@ -1357,7 +1354,7 @@ int position_estimator_inav_thread_main(int argc, char *argv[])
 
 				global_pos.eph = eph;
 				global_pos.epv = epv;
-				global_pos.gpsw = w_gps_cubie;
+				global_pos.gpsw = w_gps_ext_lpos;
 
 				if (vehicle_global_position_pub < 0) {
 					vehicle_global_position_pub = orb_advertise(ORB_ID(vehicle_global_position), &global_pos);

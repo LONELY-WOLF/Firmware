@@ -97,7 +97,7 @@
 #include <uORB/topics/system_power.h>
 #include <uORB/topics/servorail_status.h>
 #include <uORB/topics/wind_estimate.h>
-#include <uORB/topics/cubie_pos.h>
+#include <uORB/topics/ext_lpos.h>
 #include <uORB/topics/encoders.h>
 #include <uORB/topics/vtol_vehicle_status.h>
 
@@ -1005,7 +1005,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 		struct servorail_status_s servorail_status;
 		struct satellite_info_s sat_info;
 		struct wind_estimate_s wind_estimate;
-		struct cubie_pos_s cubie_pos;
+		struct ext_lpos_s ext_lpos;
 		struct encoders_s encoders;
 		struct vtol_vehicle_status_s vtol_status;
 	} buf;
@@ -1051,7 +1051,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 			struct log_GS1B_s log_GS1B;
 			struct log_TECS_s log_TECS;
 			struct log_WIND_s log_WIND;
-			struct log_CUBI_s log_CUBI;
+			struct log_EPOS_s log_EPOS;
 			struct log_ENCD_s log_ENCD;
 		} body;
 	} log_msg = {
@@ -1092,7 +1092,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 		int system_power_sub;
 		int servorail_status_sub;
 		int wind_sub;
-		int cubie_sub;
+		int ext_lpos_sub;
 		int encoders_sub;
 	} subs;
 
@@ -1128,7 +1128,7 @@ int sdlog2_thread_main(int argc, char *argv[])
 
 	/* we need to rate-limit wind, as we do not need the full update rate */
 	orb_set_interval(subs.wind_sub, 90);
-	subs.cubie_sub = orb_subscribe(ORB_ID(cubie_position));
+	subs.ext_lpos_sub = orb_subscribe(ORB_ID(ext_lpos_position));
 	subs.encoders_sub = orb_subscribe(ORB_ID(encoders));
 
 	/* add new topics HERE */
@@ -1782,17 +1782,13 @@ int sdlog2_thread_main(int argc, char *argv[])
 			LOGBUFFER_WRITE_AND_COUNT(WIND);
 		}
 
-		/* --- CUBIE POSITION --- */
-		//mavlink_log_info(mavlink_fd, "[sdlog2] before log cubie");
-		if (copy_if_updated(ORB_ID(cubie_position), subs.cubie_sub, &buf.cubie_pos)) {
-			//mavlink_log_info(mavlink_fd, "[sdlog2] start log cubie");
-			log_msg.msg_type = LOG_CUBI_MSG;
-			log_msg.body.log_CUBI.x = buf.cubie_pos.x;
-			log_msg.body.log_CUBI.y = buf.cubie_pos.y;
-			log_msg.body.log_CUBI.z = buf.cubie_pos.z;
-			//mavlink_log_info(mavlink_fd, "[sdlog2] log cubie %.3f %.3f %.3f", (double)log_msg.body.log_CUBI.x, (double)log_msg.body.log_CUBI.y, (double)log_msg.body.log_CUBI.z);
-			LOGBUFFER_WRITE_AND_COUNT(CUBI);
-			//mavlink_log_info(mavlink_fd, "[sdlog2] end log cubie");
+		/* --- EXT LPOS POSITION --- */
+		if (copy_if_updated(ORB_ID(ext_lpos_position), subs.ext_lpos_sub, &buf.ext_lpos)) {
+			log_msg.msg_type = LOG_EPOS_MSG;
+			log_msg.body.log_EPOS.x = buf.ext_lpos.x;
+			log_msg.body.log_EPOS.y = buf.ext_lpos.y;
+			log_msg.body.log_EPOS.z = buf.ext_lpos.z;
+			LOGBUFFER_WRITE_AND_COUNT(EPOS);
 		}
 		
 		/* --- ENCODERS --- */

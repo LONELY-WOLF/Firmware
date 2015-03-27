@@ -54,11 +54,11 @@
 #include <uORB/topics/debug_key_value.h>
 #include <poll.h>
 #include <string.h>
-#include <uORB/topics/cubie_pos.h>
+#include <uORB/topics/ext_lpos.h>
 #include <mavlink/mavlink_log.h>
  
 /* file handle that will be used for publishing */
-static int cubie_pos_handle;
+static int ext_lpos_handle;
 
 static bool thread_should_exit = false;		/**< daemon exit flag */
 static bool thread_running = false;		/**< daemon status flag */
@@ -67,12 +67,12 @@ static int daemon_task;				/**< Handle of daemon task / thread */
 /**
  * daemon management function.
  */
-__EXPORT int cubie_main(int argc, char *argv[]);
+__EXPORT int ext_lpos_main(int argc, char *argv[]);
 
 /**
  * Mainloop of daemon.
  */
-int cubie_thread_main(int argc, char *argv[]);
+int ext_lpos_thread_main(int argc, char *argv[]);
 
 /**
  * Print the correct usage.
@@ -84,7 +84,7 @@ usage(const char *reason)
 {
 	if (reason)
 		warnx("%s\n", reason);
-	errx(1, "usage: cubie {start|stop|status} [-p <additional params>]\n\n");
+	errx(1, "usage: ext_lpos {start|stop|status} [-p <additional params>]\n\n");
 }
 
 /**
@@ -95,7 +95,7 @@ usage(const char *reason)
  * The actual stack size should be set in the call
  * to task_create().
  */
-int cubie_main(int argc, char *argv[])
+int ext_lpos_main(int argc, char *argv[])
 {
 	if (argc < 1)
 		usage("missing command");
@@ -109,16 +109,16 @@ int cubie_main(int argc, char *argv[])
 		}
 
 		thread_should_exit = false;
-		daemon_task = task_spawn_cmd("cubie",
+		daemon_task = task_spawn_cmd("ext_lpos",
 					 SCHED_DEFAULT,
 					 SCHED_PRIORITY_DEFAULT,
 					 2048,
-					 cubie_thread_main,
+					 ext_lpos_thread_main,
 					 (char * const *)argv);
 		
 		int mavlink_fd;
 		mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
-		mavlink_log_info(mavlink_fd, "[cubie] started on %s", argv[2]);
+		mavlink_log_info(mavlink_fd, "[ext_lpos] started on %s", argv[2]);
 		return 0;
 	}
 
@@ -140,14 +140,14 @@ int cubie_main(int argc, char *argv[])
 	return 1;
 }
 
-int cubie_thread_main(int argc, char *argv[])
+int ext_lpos_thread_main(int argc, char *argv[])
 {
 	//int mavlink_fd = open(MAVLINK_LOG_DEVICE, 0);
 	//fd_set rfds;
 	//struct timeval tv;
 	int retval;
 
-	warnx("[cubie] starting\n");
+	warnx("[ext_lpos] starting\n");
 
 	thread_running = true;
 
@@ -193,10 +193,10 @@ int cubie_thread_main(int argc, char *argv[])
 	//warnx("1");
 	
 	/* generate the initial data for first publication */
-	struct cubie_pos_s pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f };
+	struct ext_lpos_s pos = { .x = 0.0f, .y = 0.0f, .z = 0.0f };
  
 	/* advertise the topic and make the initial publication */
-	cubie_pos_handle = orb_advertise(ORB_ID(cubie_position), &pos);
+	ext_lpos_handle = orb_advertise(ORB_ID(ext_lpos_position), &pos);
 	
 	while (!thread_should_exit)
 	{
@@ -276,7 +276,7 @@ int cubie_thread_main(int argc, char *argv[])
 		pos.y *= 0.001f;
 		pos.z *= 0.001f;
 		/* publish the new data structure */
-		orb_publish(ORB_ID(cubie_position), cubie_pos_handle, &pos);
+		orb_publish(ORB_ID(ext_lpos_position), ext_lpos_handle, &pos);
 		/*dbgx.value = (float)x / 100.0f;
 		dbgy.value = (float)y / 100.0f;
 		dbgz.value = (float)z / 100.0f;
@@ -288,7 +288,7 @@ int cubie_thread_main(int argc, char *argv[])
 
 	//DeInit
 DeInit:
-	warnx("[cubie] exiting.\n");
+	warnx("[ext_lpos] exiting.\n");
 	close(uart2);
 
 	thread_running = false;

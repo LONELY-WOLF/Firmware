@@ -236,9 +236,8 @@ ORB_DEFINE(encoders, struct encoders_s);
 #include "topics/estimator_status.h"
 ORB_DEFINE(estimator_status, struct estimator_status_report);
 
-//cubie
-#include "topics/cubie_pos.h"
-ORB_DEFINE(cubie_position, struct cubie_pos_s);
+#include "topics/ext_lpos.h"
+ORB_DEFINE(ext_lpos_position, struct ext_lpos_s);
 
 #include "topics/vision_position_estimate.h"
 ORB_DEFINE(vision_position_estimate, struct vision_position_estimate);
